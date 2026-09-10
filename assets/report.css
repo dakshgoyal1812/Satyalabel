@@ -522,6 +522,14 @@ html.light .rc-engine__head { color: #2563eb; }
   color: var(--rc-pass);
 }
 
+.rc-alert--warn {
+  border: 1px solid color-mix(in srgb, var(--rc-warn) 45%, transparent);
+  background: var(--rc-warn-soft);
+  color: var(--rc-warn);
+}
+
+.rc-alert--warn strong { color: var(--rc-warn); }
+
 .rc-violation {
   position: relative;
   padding: 14px 16px 12px 19px;

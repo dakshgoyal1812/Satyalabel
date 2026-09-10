@@ -28,8 +28,8 @@ An intelligent compliance checking platform for packaged commodities adhering to
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/DevSrivastava2508/PackCheck--Ai.git
-cd PackCheck--Ai
+git clone https://github.com/dakshgoyal1812/Satyalabel.git
+cd Satyalabel
 ```
 
 ### 2. Configure Environment Variables

@@ -1602,8 +1602,11 @@ function renderPhysicalScanForm() {
       <div class="mt-5">
         <button class="w-full py-3 px-4 rounded-xl bg-brand-navy hover:bg-brand-hoverNavy active:scale-[0.99] text-white font-medium text-xs sm:text-sm tracking-wide shadow-btn-cta transition duration-150 flex items-center justify-center gap-2 cursor-pointer ${state.isScanning ? 'opacity-60 pointer-events-none' : ''}" data-purpose="submit-compliance-check" id="btn-run-check" type="button">
           ${state.isScanning ? `
-            <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            <span>AI inspecting label...</span>
+            <svg class="w-4 h-4 animate-spin shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span class="flex flex-col items-center leading-snug">
+              <span>AI inspecting label &middot; <span id="scan-elapsed">0.0s</span></span>
+              <span id="scan-engine-label" class="text-[10px] font-mono font-semibold tracking-wide opacity-90">Selecting AI engine&hellip;</span>
+            </span>
           ` : `
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             <span>Run Compliance Check</span>
@@ -1670,8 +1673,11 @@ function renderWebPatrolForm() {
       <div class="mt-5">
         <button class="w-full py-3 px-4 rounded-xl bg-brand-navy hover:bg-brand-hoverNavy active:scale-[0.99] text-white font-medium text-xs sm:text-sm tracking-wide shadow-btn-cta transition duration-150 flex items-center justify-center gap-2 cursor-pointer ${state.isScanning ? 'opacity-60 pointer-events-none' : ''}" data-purpose="submit-web-compliance-check" id="btn-run-web-check" type="button">
           ${state.isScanning ? `
-            <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            <span>AI auditing listing...</span>
+            <svg class="w-4 h-4 animate-spin shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span class="flex flex-col items-center leading-snug">
+              <span>AI auditing listing &middot; <span id="scan-elapsed">0.0s</span></span>
+              <span id="scan-engine-label" class="text-[10px] font-mono font-semibold tracking-wide opacity-90">Selecting AI engine&hellip;</span>
+            </span>
           ` : `
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             <span>Run Web Patrol Audit</span>
@@ -2001,6 +2007,9 @@ async function triggerScan(isWeb) {
   setTimeout(() => advanceStep(4), 700);
 
   // Live elapsed-seconds readout on the CTA — makes the AI wait accountable.
+  scanLive.geminiModel = null;
+  scanLive.openRouter = false;
+  renderScanEngineLine();
   const elapsedTimer = setInterval(() => {
     const el = document.getElementById('scan-elapsed');
     if (el) el.textContent = `${((Date.now() - scanStartMs) / 1000).toFixed(1)}s`;
@@ -2009,14 +2018,24 @@ async function triggerScan(isWeb) {
   // UNIFIED AI RACE PIPELINE:
   // 1st Priority: All Google Gemini keys race in parallel (staggered) — first response wins
   // 2nd Priority: OpenRouter multimodal vision joins the same race a few seconds in
-  // Hard deadline: 20s, after which the local deterministic rule engine answers
+  // 3rd Priority: On-device Tesseract.js OCR + deterministic LMPC rule adjudication
+  //               (reads the REAL label text in-browser — never canned data)
   try {
     aiResult = await runAiPipelineRace(isWeb);
   } catch (aiErr) {
-    console.warn('[AI Pipeline] All cloud AI engines failed — answering with the local deterministic rule engine:', aiErr);
-    showToast('Cloud AI unreachable - local rule engine verdict generated', 'warning');
-    aiResult = generateLocalRuleCheck(isWeb);
-    aiResult.inspectionEngine = 'Automated AI Inspection Engine';
+    console.warn('[AI Pipeline] All cloud AI engines failed — switching to on-device OCR inspection:', aiErr);
+    showToast('Cloud AI unreachable - switching to on-device OCR engine', 'info');
+    scanLive.geminiModel = null;
+    scanLive.openRouter = false;
+    try {
+      aiResult = await runLocalOcrInspection(isWeb);
+      aiResult.inspectionEngine = 'On-Device Tesseract OCR + Rule Engine (Offline)';
+    } catch (ocrErr) {
+      console.warn('[On-Device OCR] inspection failed:', ocrErr);
+      showToast('Label could not be read clearly', 'error');
+      aiResult = await buildUnreadableVerdict(isWeb, ocrErr);
+      aiResult.inspectionEngine = 'Quality Gate (Image Unreadable)';
+    }
   }
 
   try {
@@ -2066,6 +2085,22 @@ const OPENROUTER_ATTEMPT_TIMEOUT_MS = 16000;
 const RACE_STAGGER_MS = 1200;
 const OPENROUTER_STAGGER_MS = 3500;
 const PIPELINE_DEADLINE_MS = 20000;
+
+// Live engine/model telemetry — rendered on the scan CTA so the officer can see
+// exactly which engine and model is working, and for how long, in real time.
+const scanLive = { geminiModel: null, openRouter: false };
+
+function updateScanEngineLine(text) {
+  const el = document.getElementById('scan-engine-label');
+  if (el) el.textContent = text;
+}
+
+function renderScanEngineLine() {
+  const parts = [];
+  if (scanLive.geminiModel) parts.push(`Gemini: ${scanLive.geminiModel}`);
+  if (scanLive.openRouter) parts.push('OpenRouter failover racing');
+  updateScanEngineLine(parts.length ? parts.join('  ·  ') : 'Selecting AI engine…');
+}
 
 function sleepMs(ms) {
   return new Promise(r => setTimeout(r, ms));
@@ -2169,7 +2204,7 @@ async function callGeminiVisionApi(isWeb, apiKeyOverride = null, signal = null) 
 You are inspecting a packaged commodity against the Legal Metrology (Packaged Commodities) Rules, 2011 (LMPC Rules, 2011).
 
 Analyze this packaged commodity label image carefully:
-1. Extract the text visible on the label (OCR).
+1. Extract the text visible on the label (OCR). Read even small, low-contrast or partially visible print carefully — but NEVER guess or invent text that is not actually visible.
 2. Look for all mandatory statutory declarations under Rule 6:
    - Rule 6(1)(a): Name of commodity / generic title
    - Rule 6(1)(b): Name and complete physical address of manufacturer/packer/importer
@@ -2184,6 +2219,9 @@ Analyze this packaged commodity label image carefully:
    - "NON-COMPLIANT" (any mandatory declaration missing or violating)
    - "REVIEW" (ambiguous / partially unreadable)
 4. Calculate a complianceScore (integer from 0 to 100).
+5. Judge the PHOTO QUALITY of the uploaded image itself and set "imageQuality" to "ok", "blurry", "glare" or "dark". If the image is too unreadable to judge fairly, set complianceStatus to "REVIEW".
+
+INTEGRITY RULE (highest priority): Never invent or guess declaration values that are not visible in the image. If a declaration cannot be read, return "" for that field and add a violation entry with severity "MEDIUM" explaining it was not readable on the label.
 
 Return ONLY a valid JSON object matching this schema:
 {
@@ -2195,9 +2233,10 @@ Return ONLY a valid JSON object matching this schema:
   "mfgDate": "e.g. 11/2025",
   "consumerCare": "e.g. care@brand.in / 1800-xxx-xxxx",
   "countryOfOrigin": "India or country name",
+  "imageQuality": "ok",
   "complianceStatus": "PASS" or "NON-COMPLIANT" or "REVIEW",
   "complianceScore": 100,
-  "verdictSummary": "Clear explanation in simple English explaining why it is compliant ('sahi hai') or why it violated ('sahi nahi hai')",
+  "verdictSummary": "Clear factual explanation in simple English of why the label is compliant or which declarations failed, referring only to what is visible",
   "violations": [
     {
       "rule": "Rule 6(1)(e)",
@@ -2243,13 +2282,16 @@ Return ONLY a valid JSON object matching this schema:
     });
   }
 
-  // Try candidate Gemini models (gemini-3.6-flash works on both Key 1 and Key 2, gemini-2.5-flash fallback)
-  const candidateGeminiModels = ['gemini-3.6-flash', 'gemini-2.5-flash'];
+  // Try candidate Gemini models — newest first; 2.0-flash is the broad-availability
+  // safety net when the newer models are rate-limited or unavailable on a key.
+  const candidateGeminiModels = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash'];
   let lastErr = null;
   let data = null;
   let usedModel = null;
 
   for (const model of candidateGeminiModels) {
+    scanLive.geminiModel = model;
+    renderScanEngineLine();
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
@@ -2313,15 +2355,16 @@ Return ONLY a valid JSON object matching this schema:
   return {
     id: `SL-2026-${Math.floor(1000 + Math.random() * 9000)}`,
     productName: parsed.productName || productNameHint,
-    brand: parsed.brand || 'Verified Brand FMCG',
-    manufacturer: parsed.manufacturer || 'Sector Industrial Estate, Greater Noida, UP',
-    mrp: parsed.mrp || '₹ 250.00',
-    netQty: parsed.netQty || '400 g',
-    mfgDate: parsed.mfgDate || '11/2025',
-    consumerCare: parsed.consumerCare || 'grievance@fmcgbrand.in',
-    countryOfOrigin: parsed.countryOfOrigin || 'India',
+    brand: parsed.brand || 'Not detected',
+    manufacturer: parsed.manufacturer || 'Not detected',
+    mrp: parsed.mrp || 'Not detected',
+    netQty: parsed.netQty || 'Not detected',
+    mfgDate: parsed.mfgDate || 'Not detected',
+    consumerCare: parsed.consumerCare || 'Not detected',
+    countryOfOrigin: parsed.countryOfOrigin || 'Not detected',
     complianceStatus: parsed.complianceStatus || (parsed.violations?.length ? 'NON-COMPLIANT' : 'PASS'),
     complianceScore: typeof parsed.complianceScore === 'number' ? parsed.complianceScore : (parsed.violations?.length ? 45 : 100),
+    imageQuality: parsed.imageQuality || 'ok',
     timestamp: 'Just now',
     sourceType: sourceType,
     officer: state.user?.email || 'officer@gov.in',
@@ -2337,6 +2380,8 @@ Return ONLY a valid JSON object matching this schema:
 // (so a faster Gemini key cancels it instantly) and gives up on a dead model fast
 // instead of burning 30s x 5 candidate models sequentially.
 async function callOpenRouterVisionApi(isWeb, externalSignal = null, perModelTimeoutMs = 14000, maxModels = 2) {
+  scanLive.openRouter = true;
+  renderScanEngineLine();
   const productNameHint = isWeb
     ? (document.getElementById('web-patrol-hint')?.value || 'Online Product Listing')
     : (document.getElementById('product-name')?.value || document.getElementById('scan-product-name')?.value || 'Field Packaged Commodity');
@@ -2348,7 +2393,7 @@ async function callOpenRouterVisionApi(isWeb, externalSignal = null, perModelTim
 You are inspecting a packaged commodity against the Legal Metrology (Packaged Commodities) Rules, 2011 (LMPC Rules, 2011).
 
 Analyze this packaged commodity label image carefully:
-1. Extract the text visible on the label (OCR).
+1. Extract the text visible on the label (OCR). Read even small, low-contrast or partially visible print carefully — but NEVER guess or invent text that is not actually visible.
 2. Look for all mandatory statutory declarations under Rule 6:
    - Rule 6(1)(a): Name of commodity / generic title
    - Rule 6(1)(b): Name and complete physical address of manufacturer/packer/importer
@@ -2363,6 +2408,9 @@ Analyze this packaged commodity label image carefully:
    - "NON-COMPLIANT" (any mandatory declaration missing or violating)
    - "REVIEW" (ambiguous / partially unreadable)
 4. Calculate a complianceScore (integer from 0 to 100).
+5. Judge the PHOTO QUALITY of the uploaded image itself and set "imageQuality" to "ok", "blurry", "glare" or "dark". If the image is too unreadable to judge fairly, set complianceStatus to "REVIEW".
+
+INTEGRITY RULE (highest priority): Never invent or guess declaration values that are not visible in the image. If a declaration cannot be read, return "" for that field and add a violation entry with severity "MEDIUM" explaining it was not readable on the label.
 
 Return ONLY a valid JSON object matching this schema:
 {
@@ -2374,9 +2422,10 @@ Return ONLY a valid JSON object matching this schema:
   "mfgDate": "e.g. 11/2025",
   "consumerCare": "e.g. care@brand.in / 1800-xxx-xxxx",
   "countryOfOrigin": "India or country name",
+  "imageQuality": "ok",
   "complianceStatus": "PASS" or "NON-COMPLIANT" or "REVIEW",
   "complianceScore": 100,
-  "verdictSummary": "Clear explanation in simple English explaining why it is compliant ('sahi hai') or why it violated ('sahi nahi hai')",
+  "verdictSummary": "Clear factual explanation in simple English of why the label is compliant or which declarations failed, referring only to what is visible",
   "violations": [
     {
       "rule": "Rule 6(1)(e)",
@@ -2513,37 +2562,278 @@ Return ONLY a valid JSON object matching this schema:
 // Backward compatibility alias
 const callOpenRouterFallback = callOpenRouterVisionApi;
 
-// Deterministic Offline Rule Check Fallback
-function generateLocalRuleCheck(isWeb) {
-  const productName = isWeb
-    ? (document.getElementById('web-patrol-hint')?.value || 'Online Packaged Item')
-    : (document.getElementById('product-name')?.value || document.getElementById('scan-product-name')?.value || 'Field Packaged Commodity');
-  const isViolating = Math.random() > 0.45;
+// --- ON-DEVICE OCR INSPECTION FALLBACK (Tesseract.js + LMPC rule adjudication) ---
+// When every cloud AI engine is rate-limited or unreachable, the officer still gets a
+// REAL, image-derived verdict: Tesseract.js reads the label text entirely in the
+// browser, an image-quality gate detects blur / poor lighting / low resolution, and
+// the deterministic rule engine adjudicates the EXTRACTED text. No two labels
+// produce the same report — there is no canned data anywhere in this path.
+
+function loadImageSafe(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Image could not be decoded'));
+    img.src = src;
+  });
+}
+
+// Blur metric (Laplacian variance on a downscaled grayscale copy) + luminance check.
+// Sharp printed text produces a high edge-energy variance; out-of-focus photos don't.
+async function analyzeImageQuality(dataUrl) {
+  const img = await loadImageSafe(dataUrl);
+  const scale = Math.min(1, 320 / Math.max(img.width || 1, img.height || 1));
+  const w = Math.max(48, Math.round((img.width || 320) * scale));
+  const h = Math.max(48, Math.round((img.height || 320) * scale));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const gray = new Float32Array(w * h);
+  let sum = 0;
+  for (let i = 0; i < w * h; i++) {
+    const g = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    gray[i] = g;
+    sum += g;
+  }
+  const meanLuma = sum / (w * h);
+  let s = 0, sq = 0, n = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const lap = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - w] - gray[i + w];
+      s += lap;
+      sq += lap * lap;
+      n++;
+    }
+  }
+  const lapVar = Math.max(0, sq / n - (s / n) ** 2);
+  return {
+    width: img.width || 0,
+    height: img.height || 0,
+    meanLuma: Math.round(meanLuma),
+    lapVar: Math.round(lapVar),
+    blurry: lapVar < 100,
+    soft: lapVar < 250,
+    dark: meanLuma < 70,
+    tooSmall: Math.max(img.width || 0, img.height || 0) < 320
+  };
+}
+
+function qualityReasons(quality, words) {
+  const reasons = [];
+  if (!quality) return reasons;
+  if (quality.blurry) reasons.push('the image appears out of focus (blurry)');
+  else if (quality.soft) reasons.push('the image focus is soft');
+  if (quality.dark) reasons.push('the lighting is too dark');
+  if (quality.tooSmall) reasons.push('the image resolution is too low');
+  if (typeof words === 'number' && words < 12) reasons.push('very little text could be read');
+  return reasons;
+}
+
+// Regex extraction + Rule 6 adjudication over the raw OCR text.
+function adjudicateOcrText({ rawText, confidence, words, quality, productNameHint, sourceType }) {
+  const flat = (' ' + rawText.toUpperCase().replace(/[|,;]/g, ' ').replace(/\s+/g, ' ') + ' ');
+  const violations = [];
+  const passedRules = [];
+  const addV = (rule, desc, severity, penalty) => violations.push({ rule, desc, severity, penalty });
+  const addP = (rule, desc) => passedRules.push({ rule, desc });
+
+  const readable = words >= 12 && confidence >= 50;
+
+  // Rule 6(1)(a) — name of commodity
+  const nameLine = rawText.split('\n').map(l => l.trim())
+    .find(l => l.length >= 4 && /[A-Za-z]/.test(l) && !/^(MRP|RS|₹|NET|QTY|MAX)/i.test(l.trim()));
+  const productName = (productNameHint && !/^(Field Packaged Commodity|Online Product Listing|Online Packaged Item)$/.test(productNameHint))
+    ? productNameHint
+    : (nameLine || 'Unidentified Packaged Commodity');
+  if (nameLine) addP('Rule 6(1)(a)', `Commodity name detected on label: "${nameLine.slice(0, 60)}".`);
+  else addV('Rule 6(1)(a)', 'Generic name of the commodity could not be located on the label.', 'MEDIUM', 'Mandatory show-cause notice');
+
+  // Rule 6(1)(e) — MRP + inclusive-tax statement
+  const mrpMatch = flat.match(/\b(?:M\.?\s*R\.?\s*P\.?|MAX(?:IMUM)?\s*RETAIL\s*PRICE|RETAIL\s*PRICE)\b[^0-9₹]{0,26}(?:₹\s*|RS\.?\s*|RS\s*|INR\s*)?([0-9][0-9,]*(?:\.[0-9]{1,2})?)/);
+  const inclOk = /\b(?:INCLU\w*\s*(?:OF\s*)?ALL\s*TAXES|INCL\.?\s*(?:OF\s*)?ALL\s*TAXES|INCLUSIVE\s+TAX\w*|ALL\s*TAXES\s*INCLU\w*)\b/.test(flat);
+  const mrpValue = mrpMatch ? `₹ ${mrpMatch[1].replace(/,/g, '')}` : '';
+  if (mrpValue && inclOk) addP('Rule 6(1)(e)', `MRP ₹ ${mrpMatch[1]} declared with the mandatory "(Inclusive of all taxes)" statement.`);
+  else if (mrpValue) addV('Rule 6(1)(e)', `MRP of ₹ ${mrpMatch[1]} was detected WITHOUT the mandatory "(Inclusive of all taxes)" statement.`, 'HIGH', 'Section 36(1) Compounding Fine up to ₹25,000');
+  else addV('Rule 6(1)(e)', 'No Maximum Retail Price (MRP) declaration could be located on the label.', 'HIGH', 'Section 36(1) Compounding Fine up to ₹25,000');
+
+  // Rule 6(1)(c) — net quantity, metric units
+  // NOTE: alternation is enumerated longest-first — `GMS?` would mean "GM"+optional S,
+  // which silently fails to match a bare "G" unit.
+  const qtyMatch = flat.match(/\b([0-9]+(?:\.[0-9]+)?)\s*(GMS|GM|G|GRAMS|GRAM|KG|KILOGRAMS|KILOGRAM|ML|LITRES|LITRE|LITERS|LITER|LTR|LT|L)\b/);
+  const nonMetric = /\b(?:FL\s*\.?\s*OZ|FLUID\s*OUNCE|(?<![A-Z])OZ(?![A-Z])|POUNDS?|LBS?)\b/.test(flat);
+  let qtyValue = '';
+  if (qtyMatch) {
+    const unitMap = { G: 'g', GM: 'g', GMS: 'g', GRAM: 'g', GRAMS: 'g', KG: 'kg', KILOGRAM: 'kg', KILOGRAMS: 'kg', ML: 'ml', LTR: 'L', LT: 'L', LITRE: 'L', LITRES: 'L', LITER: 'L', LITERS: 'L', L: 'L' };
+    const unit = unitMap[qtyMatch[2]] || qtyMatch[2].toLowerCase();
+    qtyValue = `${qtyMatch[1]} ${unit}`;
+  }
+  if (qtyValue && !nonMetric) addP('Rule 6(1)(c)', `Net quantity declared in a standard metric unit: ${qtyValue}.`);
+  else if (nonMetric) addV('Rule 6(1)(c)', 'A non-metric unit (e.g. fl oz / oz) was detected. Rule 6 mandates metric units (g, kg, ml, l).', 'HIGH', 'Direct seizure of non-compliant batch');
+  else addV('Rule 6(1)(c)', 'Net quantity declaration could not be located on the label.', 'MEDIUM', 'Mandatory show-cause notice');
+
+  // Rule 6(1)(d) — month & year of manufacture/packing
+  const dateMatch = flat.match(/\b(0?[1-9]|1[0-2])\s*[\/\-\.]\s*(20[0-9]{2})\b/) ||
+    rawText.toUpperCase().match(/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s*[,\/\-]?\s*(20[0-9]{2})\b/);
+  const dateValue = dateMatch ? (dateMatch[2].length === 4 && /^\d/.test(dateMatch[1]) ? `${String(dateMatch[1]).padStart(2, '0')}/${dateMatch[2]}` : `${dateMatch[1]}/${dateMatch[2]}`) : '';
+  if (dateValue) addP('Rule 6(1)(d)', `Month & year of manufacture/packing declared: ${dateValue}.`);
+  else addV('Rule 6(1)(d)', 'Month & year of manufacture or pre-packaging was not found on the label.', 'MEDIUM', 'Mandatory show-cause notice');
+
+  // Rule 6(1)(b) — manufacturer / packer address
+  const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+  const mfgIdx = lines.findIndex(l => /manufactur|packed\s*by|marketed\s*by/i.test(l) && l.length > 8);
+  // "Manufactured & Packed by:" is a header — the actual name/address is the next line.
+  let mfgValue = '';
+  if (mfgIdx >= 0) {
+    mfgValue = /:\s*$/.test(lines[mfgIdx]) && lines[mfgIdx + 1]
+      ? `${lines[mfgIdx].replace(/:\s*$/, '')}: ${lines[mfgIdx + 1]}`
+      : lines[mfgIdx];
+  }
+  const pinOk = /\b[1-9][0-9]{5}\b/.test(rawText);
+  if (mfgValue && pinOk) addP('Rule 6(1)(b)', 'Manufacturer/packer name and complete postal address (with PIN code) detected.');
+  else if (mfgValue) addP('Rule 6(1)(b)', 'Manufacturer/packer declaration detected on the label.');
+  else if (pinOk) addP('Rule 6(1)(b)', 'A postal PIN code was detected, indicating an address declaration.');
+  else addV('Rule 6(1)(b)', 'Complete manufacturer/packer name and postal address could not be located on the label.', 'HIGH', 'Fine up to ₹50,000 for repeated non-compliance');
+
+  // Rule 6(1)(f) — consumer care details
+  const emailOk = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(rawText);
+  const phoneOk = /(?:\+91[\-\s]?)?[6-9][0-9]{9}\b|\b1800[\-\s]?[0-9]{3}[\-\s]?[0-9]{3,5}\b|\b[0-9]{3,5}[\-\s][0-9]{6,8}\b/.test(rawText);
+  const careBits = [];
+  if (emailOk) careBits.push(rawText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)[0]);
+  if (phoneOk) careBits.push((rawText.match(/(?:\+91[\-\s]?)?[6-9][0-9]{9}\b|\b1800[\-\s]?[0-9]{3}[\-\s]?[0-9]{3,5}\b|\b[0-9]{3,5}[\-\s][0-9]{6,8}/) || [''])[0]);
+  const careValue = careBits.join(' / ');
+  if (careValue) addP('Rule 6(1)(f)', `Consumer care contact details detected: ${careValue}.`);
+  else addV('Rule 6(1)(f)', 'No consumer care telephone number or e-mail address was found on the label.', 'LOW', 'Advisory Notice & Warning');
+
+  // Country of origin
+  const countryMatch = flat.match(/COUNTRY\s*(?:OF\s*)?ORIGIN\s*[:\-\s]*([A-Z][A-Z\s]{2,28})/);
+  const countryValue = countryMatch ? countryMatch[1].trim() : (/\bINDIA\b|\bMADE IN INDIA\b/.test(flat) ? 'India' : '');
+
+  const totalChecks = violations.length + passedRules.length;
+  const score = totalChecks ? Math.round((passedRules.length / totalChecks) * 100) : 0;
+  const status = !readable ? 'REVIEW' : violations.length ? 'NON-COMPLIANT' : 'PASS';
+
+  const reasons = qualityReasons(quality, words);
+  const verdictSummary = !readable
+    ? `The inspection could not be completed reliably: ${reasons.join('; ') || 'the label text was not recognisable'}. Only ${words} words were detected at ${confidence}% OCR confidence. Retake the photo with the label flat, in focus and evenly lit, then re-run the inspection.`
+    : `On-device OCR read ${words} words at ${confidence}% confidence. Detected — MRP: ${mrpValue || 'not found'}${mrpValue ? (inclOk ? ' (inclusive of all taxes stated)' : ' (inclusive-tax statement MISSING)') : ''}; Net quantity: ${qtyValue || 'not found'}; Packing date: ${dateValue || 'not found'}; Origin: ${countryValue || 'not stated'}. ${violations.length ? `${violations.length} statutory declaration(s) failed LMPC verification.` : 'All checked statutory declarations passed verification.'}`;
 
   return {
     id: `SL-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-    productName: productName,
-    brand: 'PureOrigins Agro',
-    manufacturer: 'Plot 14, GIDC Industrial Estate, Gujarat',
-    mrp: isViolating ? '₹ 199.00' : '₹ 199.00 (Incl. of all taxes)',
-    netQty: '300 g',
-    mfgDate: '10/2025',
-    consumerCare: 'care@pureorigins.in / 1800-222-333',
-    countryOfOrigin: 'India',
-    complianceStatus: isViolating ? 'NON-COMPLIANT' : 'PASS',
-    complianceScore: isViolating ? 45 : 100,
+    productName,
+    brand: nameLine ? nameLine.split(/\s+/).slice(0, 2).join(' ') : 'Not detected',
+    manufacturer: mfgValue || 'Not detected',
+    mrp: mrpValue || 'Not detected',
+    netQty: qtyValue || 'Not detected',
+    mfgDate: dateValue || 'Not detected',
+    consumerCare: careValue || 'Not detected',
+    countryOfOrigin: countryValue || 'Not detected',
+    complianceStatus: status,
+    complianceScore: score,
+    imageQuality: quality?.blurry ? 'blurry' : quality?.dark ? 'dark' : 'ok',
+    timestamp: 'Just now',
+    sourceType: sourceType,
+    officer: state.user?.email || 'officer@gov.in',
+    violations,
+    passedRules,
+    verdictSummary,
+    modelUsed: `Tesseract.js · ${confidence}% conf`,
+    ocrMeta: { confidence, words, quality }
+  };
+}
+
+// Entry point for the offline tier: quality gate -> OCR -> adjudication.
+async function runLocalOcrInspection(isWeb) {
+  if (!state.previewUrl) throw new Error('No specimen image attached');
+
+  updateScanEngineLine('On-device engine: checking image quality…');
+  const quality = await analyzeImageQuality(state.previewUrl);
+
+  if (!window.Tesseract) throw new Error('Tesseract.js engine not loaded');
+
+  // Upscale before OCR — Tesseract recognises small label print far better at
+  // ~1600px than at the compressed 1280px scan payload.
+  let ocrInput = state.previewUrl;
+  try {
+    const img = await loadImageSafe(state.previewUrl);
+    const scale = Math.min(2, Math.max(1, 1600 / Math.max(img.width || 1, img.height || 1)));
+    if (scale > 1.05) {
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      const ctx = c.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      ocrInput = c.toDataURL('image/png');
+    }
+  } catch (_) { /* fall back to the original payload */ }
+
+  updateScanEngineLine('On-device OCR: loading recognition model…');
+  let ocr;
+  try {
+    ocr = await Tesseract.recognize(ocrInput, 'eng', {
+      logger: (m) => {
+        if (m && m.status === 'recognizing text' && typeof m.progress === 'number') {
+          updateScanEngineLine(`On-device OCR reading label… ${Math.round(m.progress * 100)}%`);
+        }
+      }
+    });
+  } catch (e) {
+    e.quality = quality;
+    throw e;
+  }
+
+  const rawText = (ocr?.data?.text || '').trim();
+  const confidence = Math.round(ocr?.data?.confidence || 0);
+  const words = rawText.split(/\s+/).filter(Boolean).length;
+  updateScanEngineLine(`On-device OCR: adjudicating ${words} words against LMPC rules…`);
+
+  const productNameHint = isWeb
+    ? (document.getElementById('web-patrol-hint')?.value || 'Online Product Listing')
+    : (document.getElementById('product-name')?.value || document.getElementById('scan-product-name')?.value || '');
+  const sourceType = isWeb
+    ? 'E-Commerce Listing (Web Patrol)'
+    : (document.getElementById('source-type')?.value || 'Physical Label (Package)');
+
+  return adjudicateOcrText({ rawText, confidence, words, quality, productNameHint, sourceType });
+}
+
+// Last-resort verdict when even the OCR engine fails — always honest about why.
+async function buildUnreadableVerdict(isWeb, ocrErr) {
+  let quality = ocrErr?.quality || null;
+  if (!quality && state.previewUrl) {
+    try { quality = await analyzeImageQuality(state.previewUrl); } catch (_) { /* keep null */ }
+  }
+  const reasons = qualityReasons(quality);
+  const productNameHint = isWeb
+    ? (document.getElementById('web-patrol-hint')?.value || 'Online Product Listing')
+    : (document.getElementById('product-name')?.value || document.getElementById('scan-product-name')?.value || 'Field Packaged Commodity');
+
+  return {
+    id: `SL-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+    productName: productNameHint,
+    brand: 'Not detected',
+    manufacturer: 'Not detected',
+    mrp: 'Not detected',
+    netQty: 'Not detected',
+    mfgDate: 'Not detected',
+    consumerCare: 'Not detected',
+    countryOfOrigin: 'Not detected',
+    complianceStatus: 'REVIEW',
+    complianceScore: 0,
+    imageQuality: quality?.blurry ? 'blurry' : quality?.dark ? 'dark' : 'unreadable',
     timestamp: 'Just now',
     sourceType: isWeb ? 'E-Commerce Listing (Web Patrol)' : 'Physical Label (Package)',
     officer: state.user?.email || 'officer@gov.in',
-    violations: isViolating ? [
-      { rule: 'Rule 6(1)(e)', desc: 'Retail sale price does not contain the mandatory statutory expression "(Inclusive of all taxes)".', severity: 'HIGH', penalty: 'Section 36(1) Compounding Fine up to ₹25,000' }
-    ] : [],
-    passedRules: [
-      { rule: 'Rule 6(1)(a)', desc: 'Generic name of commodity declared prominently on PDP.' },
-      { rule: 'Rule 6(1)(b)', desc: 'Name and postal address of manufacturer verified.' },
-      { rule: 'Rule 6(1)(c)', desc: 'Standard metric unit (g) verified.' }
-    ],
-    verdictSummary: isViolating ? 'This product label is non-compliant because the MRP declaration is missing the mandatory "(Inclusive of all taxes)" statement.' : 'This product label is fully compliant with the Legal Metrology (Packaged Commodities) Rules, 2011. All checked statutory declarations are present.'
+    violations: [],
+    passedRules: [],
+    verdictSummary: `No statutory verdict could be produced: ${reasons.join('; ') || 'the OCR engine could not read the label'}. Please retake the photograph with the label flat, fully in frame, in focus and evenly lit, then run the inspection again.`,
+    modelUsed: 'quality gate',
+    ocrMeta: { confidence: 0, words: 0, quality }
   };
 }
 
@@ -2823,6 +3113,9 @@ function renderReportContent(scan) {
           <p class="rc-hero__brand">${esc(scan.brand)} &middot; ${esc(scan.sourceType || 'Physical Label')}</p>
           <div class="rc-hero__meta">
             <span><i data-lucide="fingerprint" class="w-3 h-3"></i> ${esc(scan.id)}</span>
+            ${scan.timestamp ? `<span><i data-lucide="clock" class="w-3 h-3"></i> ${esc(scan.timestamp)}</span>` : ''}
+            ${scan.scanDurationMs ? `<span><i data-lucide="timer" class="w-3 h-3"></i> ${(scan.scanDurationMs / 1000).toFixed(1)}s audit</span>` : ''}
+            ${scan.ocrMeta ? `<span><i data-lucide="scan-text" class="w-3 h-3"></i> OCR ${scan.ocrMeta.confidence}% &middot; ${scan.ocrMeta.words} words</span>` : ''}
           </div>
         </div>
         <div class="rc-score" role="img" aria-label="Compliance score ${score} out of 100">
@@ -2855,6 +3148,22 @@ function renderReportContent(scan) {
           </div>
         `}
       </div>
+
+      <!-- IMAGE QUALITY GATE -->
+      ${(function () {
+        const q = scan.ocrMeta?.quality;
+        const flags = [];
+        if (q?.blurry) flags.push('blurry / out of focus');
+        else if (q?.soft) flags.push('soft focus');
+        if (q?.dark) flags.push('poor lighting');
+        if (q?.tooSmall) flags.push('low resolution');
+        if (scan.imageQuality && !['ok', 'unreadable'].includes(scan.imageQuality) && !flags.some(f => f.includes(scan.imageQuality))) flags.push(scan.imageQuality);
+        return flags.length ? `
+          <div class="rc-item rc-alert rc-alert--warn" style="--rc-delay:${nextDelay()}ms">
+            <i data-lucide="image-off" class="w-4 h-4 shrink-0"></i>
+            <span><strong>Image quality alert (${esc(flags.join(', '))}):</strong> part of this verdict may be limited. Retake the photo with the label flat, fully in frame, in focus and evenly lit for a sharper inspection.</span>
+          </div>` : '';
+      })()}
 
       <!-- AI ENGINE + VERDICT SUMMARY -->
       <div class="rc-item rc-engine" style="--rc-delay:${nextDelay()}ms">
