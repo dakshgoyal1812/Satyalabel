@@ -21,10 +21,10 @@ const state = {
   geminiApiKey: '',
   geminiApiKey2: '',
   geminiApiKeys: [],
-  currentGeminiKeyIndex: parseInt(localStorage.getItem('satya-gemini-key-index') || '0', 10),
+  currentGeminiKeyIndex: parseInt(localStorage.getItem('packcheck-gemini-key-index') || localStorage.getItem('satya-gemini-key-index') || '0', 10) || 0,
   openRouterApiKey: '',
   openRouterModel: 'google/gemma-4-26b-a4b-it:free',
-  activeEngine: 'Google Gemini Vision (Rotated Key 1 & 2) + OpenRouter Fallback',
+  activeEngine: 'Automated Multimodal AI Engine',
 
   // Seed Scans Repository
   scans: JSON.parse(localStorage.getItem('satya-scans')) || [
@@ -460,11 +460,28 @@ function setupGlobalListeners() {
   const closeModalBtn = document.getElementById('close-modal-btn');
   const reportModal = document.getElementById('report-modal');
   if (closeModalBtn && reportModal) {
-    closeModalBtn.addEventListener('click', () => {
-      reportModal.classList.add('hidden');
-      reportModal.classList.remove('flex');
+    closeModalBtn.addEventListener('click', closeReportModal);
+  }
+
+  // Close modal when clicking on the dark backdrop
+  if (reportModal) {
+    reportModal.addEventListener('click', (e) => {
+      if (e.target === reportModal) closeReportModal();
     });
   }
+
+  // Close modal on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('report-modal');
+      if (modal && !modal.classList.contains('hidden')) closeReportModal();
+    }
+  });
+
+  // Clear the print-scoping class once the print dialog closes.
+  window.addEventListener('afterprint', () => {
+    document.body.classList.remove('rc-printing');
+  });
 }
 
 // --- VIEW 1: LANDING PAGE ---
@@ -479,8 +496,6 @@ function renderLandingPage() {
 
             <div class="sl-eyebrow">
               <div class="sl-eyebrow__row">
-                <span>भारत सरकार</span>
-                <i class="sl-eyebrow__dot"></i>
                 <span>GOVERNMENT OF INDIA</span>
               </div>
               <p class="sl-eyebrow__ministry">Ministry of Consumer Affairs, Food &amp; Public Distribution</p>
@@ -837,8 +852,8 @@ function renderLandingPage() {
                   <div class="sl-tech">
                     <span class="sl-tech__icon"><i data-lucide="cpu" class="w-5 h-5"></i></span>
                     <div>
-                      <h3>Gemini 1.5 Flash Vision</h3>
-                      <p>Multimodal JSON parsing</p>
+                      <h3>Multimodal Vision Engine</h3>
+                      <p>Neural JSON parsing</p>
                     </div>
                   </div>
                   <div class="sl-tech">
@@ -1156,7 +1171,7 @@ function renderLoginPage() {
       <div class="sl-auth__card sl-reveal">
 
         <img class="sl-auth__emblem" src="assets/emblem-transparent.png" alt="State Emblem of India" />
-        <span class="sl-auth__eyebrow">भारत सरकार &middot; Government of India</span>
+        <span class="sl-auth__eyebrow">Government of India &middot; Department of Consumer Affairs</span>
 
         <h1>Access Console</h1>
         <p>Enter your department credentials to access the compliance enforcement console.</p>
@@ -1396,17 +1411,15 @@ function renderDashboardPage() {
               <div class="p-3.5 rounded-xl border border-white/15 hover:border-blue-400/60 transition-colors cursor-pointer bg-white/[0.04]" onclick="viewScanReport('${scan.id}')">
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="text-[10px] font-mono text-white/70 font-bold">${scan.id}</span>
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    scan.complianceStatus === 'PASS' ? 'badge-pass' :
-                    scan.complianceStatus === 'NON-COMPLIANT' ? 'badge-fail' : 'badge-review'
-                  }">
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${scan.complianceStatus === 'PASS' ? 'badge-pass' :
+      scan.complianceStatus === 'NON-COMPLIANT' ? 'badge-fail' : 'badge-review'
+    }">
                     ${scan.complianceStatus}
                   </span>
                 </div>
                 <h4 class="text-xs font-semibold text-white truncate">${scan.productName}</h4>
                 <div class="flex justify-between text-[11px] text-white/70 mt-1">
                   <span>${scan.brand}</span>
-                  <span>${scan.timestamp}</span>
                 </div>
               </div>
             `).join('')}
@@ -1421,270 +1434,133 @@ function renderDashboardPage() {
   `;
 }
 
-function initDashboardInteractions() {}
+function initDashboardInteractions() { }
 
-// --- VIEW 4: UPLOAD & SCAN PAGE (MATCHING USER SCREENSHOT) ---
+// --- VIEW 4: UPLOAD & SCAN PAGE (MATCHING USER'S EXACT SPECIFICATION) ---
 function renderUploadPage() {
   const isWeb = state.uploadMode === 'web-patrol';
 
   return `
-    <div class="max-w-[1400px] mx-auto px-4 md:px-8 py-8 space-y-6">
-      <!-- Title Header -->
-      <div class="space-y-1">
-        <h1 class="text-3xl font-bold tracking-tight text-text-primary">Initialize Scan</h1>
-        <div class="flex items-center gap-2 text-xs font-mono text-emerald-600 dark:text-emerald-400">
-          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>OCR Pipeline Active. Awaiting payload.</span>
-        </div>
-      </div>
-
-      <!-- Mode Toggle Pills: Physical Scan vs Web Patrol (URL) -->
-      <div class="inline-flex p-1 rounded-xl bg-black/5 dark:bg-white/5 border border-border">
-        <button id="tab-physical" class="px-5 py-2 rounded-lg text-xs font-semibold transition-all ${
-          !isWeb ? 'bg-surface text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'
-        }">
-          Physical Scan
-        </button>
-        <button id="tab-web" class="px-5 py-2 rounded-lg text-xs font-semibold transition-all ${
-          isWeb ? 'bg-surface text-text-primary shadow-sm' : 'text-text-muted hover:text-text-primary'
-        }">
-          Web Patrol (URL)
-        </button>
-      </div>
-
-      <!-- Dual Column Layout: Left Input Panel | Right Live Stepper Drawer -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
-        <!-- Left Input Panel (7 Cols) -->
-        <div class="lg:col-span-7 mello-card p-6 md:p-8 rounded-2xl space-y-6">
-          ${!isWeb ? renderPhysicalScanForm() : renderWebPatrolForm()}
-        </div>
-
-        <!-- Right: Live Processing Steps Drawer (5 Cols) -->
-        <div class="lg:col-span-5 mello-card p-6 md:p-8 rounded-2xl space-y-6">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <h2 class="font-bold text-base text-text-primary">Processing Steps</h2>
-          </div>
-
-          <div id="processing-steps-container" class="min-h-[280px] p-5 rounded-xl bg-black/5 dark:bg-white/5 border border-border font-mono text-xs text-text-muted space-y-3 flex flex-col justify-center">
-            ${state.isScanning ? renderActiveScanStepper() : `
-              <div class="text-center py-10 opacity-60">
-                <i data-lucide="terminal" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-                <p>Awaiting input payload...</p>
-                <p class="text-[10px] text-text-muted mt-1">Select an image or URL to trigger live OCR extraction.</p>
-              </div>
-            `}
-          </div>
-
-          <div class="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-text-secondary flex items-start gap-2.5">
-            <i data-lucide="shield-check" class="w-4 h-4 text-blue-500 shrink-0 mt-0.5"></i>
-            <div>
-              <span class="font-semibold text-text-primary">Statutory Engine Grounding</span>
-              <p class="text-[11px] text-text-muted mt-0.5">Verifies Principal Display Panel declarations against Legal Metrology Rules, 2011.</p>
-            </div>
+    <div class="w-full flex flex-col items-center py-2 sm:py-4">
+      <!-- BEGIN: MainHeader -->
+      <header class="px-4 sm:px-5 pt-3 pb-2 max-w-xl mx-auto w-full" data-purpose="screen-header">
+        <div class="flex flex-col gap-1.5">
+          <!-- Title -->
+          <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">
+            Initialize Scan
+          </h1>
+          <!-- OCR Pipeline Status Indicator -->
+          <div class="flex items-center gap-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-normal">
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 status-pulse"></span>
+            <span class="tracking-tight text-slate-600 dark:text-slate-300">OCR Pipeline Active. Awaiting payload.</span>
           </div>
         </div>
+      </header>
+      <!-- END: MainHeader -->
+
+      <!-- BEGIN: MainContent -->
+      <div class="flex-1 px-4 max-w-xl mx-auto w-full space-y-4 pb-6" data-purpose="scan-workspace">
+        <!-- Segmented Navigation / Tabs Switcher -->
+        <!-- BEGIN: SegmentedTabs -->
+        <nav class="p-1 bg-[#e9ecef] dark:bg-slate-800/80 rounded-xl flex items-center shadow-inner" data-purpose="mode-selector">
+          <!-- Active Physical Scan Tab -->
+          <button id="tab-physical" aria-selected="${!isWeb}" class="flex-1 py-2 px-4 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 text-center ${
+            !isWeb
+              ? 'text-slate-800 dark:text-white bg-white dark:bg-slate-900 shadow-tab-active border border-slate-200/50 dark:border-white/10'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'
+          }" type="button">
+            Physical Scan
+          </button>
+          <!-- Inactive Web Patrol Tab -->
+          <button id="tab-web" aria-selected="${isWeb}" class="flex-1 py-2 px-4 rounded-lg text-xs sm:text-sm font-medium transition-colors text-center ${
+            isWeb
+              ? 'text-slate-800 dark:text-white bg-white dark:bg-slate-900 shadow-tab-active border border-slate-200/50 dark:border-white/10'
+              : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'
+          }" type="button">
+            Web Patrol (URL)
+          </button>
+        </nav>
+        <!-- END: SegmentedTabs -->
+
+        <!-- Card 1: Product Image Input Card or Web Patrol Card -->
+        ${!isWeb ? renderPhysicalScanForm() : renderWebPatrolForm()}
+
+        <!-- Card 2: Processing Steps / Real-Time Terminal Card -->
+        <!-- BEGIN: ProcessingStepsCard -->
+        <section class="bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-white/10 p-4 sm:p-5 shadow-card-soft" data-purpose="processing-steps-panel">
+          <!-- Section Header with status dot -->
+          <div class="flex items-center gap-2 mb-3">
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 status-pulse"></span>
+            <h2 class="text-xs sm:text-sm font-semibold tracking-tight text-slate-800 dark:text-white">
+              Processing Steps
+            </h2>
+          </div>
+          <!-- Logs / Terminal Output Area -->
+          <div id="processing-steps-container" class="w-full bg-[#f8fafc] dark:bg-slate-800/60 border border-slate-100 dark:border-white/5 rounded-xl p-4 min-h-[140px] flex items-start font-mono text-[11px] sm:text-xs text-slate-400 dark:text-slate-300 tracking-tight" data-purpose="terminal-container">
+            ${state.isScanning ? renderActiveScanStepper() : '<span class="inline-flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>AWAITING INPUT PAYLOAD &mdash; UPLOAD A PRODUCT LABEL TO INSPECT</span>'}
+          </div>
+        </section>
+        <!-- END: ProcessingStepsCard -->
       </div>
+      <!-- END: MainContent -->
     </div>
   `;
 }
 
+
 // --- AI PACKAGING LABEL CANVAS GENERATOR ---
-function generateLabelCanvasImage(type = 'honey', customOptions = {}) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 900;
-  canvas.height = 650;
-  const ctx = canvas.getContext('2d');
-
-  const isCompliant = customOptions.isCompliant !== undefined ? customOptions.isCompliant : (type === 'honey');
-  const violationType = customOptions.violationType || (type === 'cookie' ? 'missing_tax' : type === 'shampoo' ? 'missing_address' : type === 'milk' ? 'invalid_unit' : (isCompliant ? 'none' : 'missing_tax'));
-
-  // Background Gradient
-  const gradient = ctx.createLinearGradient(0, 0, 900, 650);
-  if (type === 'honey') {
-    gradient.addColorStop(0, '#FEF9C3');
-    gradient.addColorStop(1, '#FDE047');
-  } else if (type === 'cookie') {
-    gradient.addColorStop(0, '#FFEDD5');
-    gradient.addColorStop(1, '#FED7AA');
-  } else if (type === 'shampoo') {
-    gradient.addColorStop(0, '#E0F2FE');
-    gradient.addColorStop(1, '#BAE6FD');
-  } else {
-    gradient.addColorStop(0, '#F1F5F9');
-    gradient.addColorStop(1, '#E2E8F0');
-  }
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 900, 650);
-
-  // Outer Border & Packaging Seam
-  ctx.strokeStyle = '#0F172A';
-  ctx.lineWidth = 6;
-  ctx.strokeRect(15, 15, 870, 620);
-  ctx.strokeStyle = '#94A3B8';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(25, 25, 850, 600);
-
-  // Brand Header Bar
-  ctx.fillStyle = '#1E3A8A';
-  ctx.fillRect(35, 35, 830, 90);
-
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 30px Arial, sans-serif';
-  ctx.textAlign = 'center';
-  const brand = customOptions.brand || (type === 'honey' ? 'PURE ORIGINS ORGANICS' : type === 'cookie' ? 'NUTRIDELIGHT FMCG' : type === 'shampoo' ? 'HERBAL ESSENCE CARE' : 'FARM FRESH DAIRY');
-  ctx.fillText(brand, 450, 90);
-
-  // Veg Symbol Top-Right
-  ctx.strokeStyle = '#16A34A';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(810, 48, 42, 42);
-  ctx.fillStyle = '#16A34A';
-  ctx.beginPath();
-  ctx.arc(831, 69, 12, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Product Name (Rule 6(1)(a) Generic Title)
-  ctx.fillStyle = '#0F172A';
-  ctx.font = 'bold 30px Arial, sans-serif';
-  ctx.textAlign = 'left';
-  const prodName = customOptions.name || (type === 'honey' ? '100% NATURAL RAW FOREST HONEY' : type === 'cookie' ? 'ALMOND BUTTER DIGESTIVE COOKIES' : type === 'shampoo' ? 'AYURVEDIC NEEM & ALOE SHAMPOO' : 'PURE PASTEURIZED WHOLE MILK');
-  ctx.fillText(prodName, 50, 170);
-
-  ctx.fillStyle = '#475569';
-  ctx.font = 'italic 16px Arial, sans-serif';
-  ctx.fillText('Packaged Commodity Category: Food & FMCG Consumables', 50, 200);
-
-  // Principal Display Panel (PDP) Box
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(50, 220, 800, 280);
-  ctx.strokeStyle = '#CBD5E1';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(50, 220, 800, 280);
-
-  ctx.fillStyle = '#1E3A8A';
-  ctx.font = 'bold 18px Arial, sans-serif';
-  ctx.fillText('MANDATORY STATUTORY DECLARATIONS (LMPC RULES, 2011)', 70, 255);
-
-  // Rules text
-  ctx.font = '16px Arial, sans-serif';
-  ctx.fillStyle = '#1E293B';
-
-  // 1. Net Quantity (Rule 6(1)(c))
-  if (violationType === 'invalid_unit') {
-    ctx.fillStyle = '#DC2626';
-    ctx.fillText('• Net Quantity: 16.9 Fluid Ounces (fl oz)', 70, 290);
-    ctx.font = '13px Arial, sans-serif';
-    ctx.fillText('  [VIOLATION: Non-metric unit; Rule 6 mandates metric g/kg/ml/L]', 70, 310);
-    ctx.font = '16px Arial, sans-serif';
-    ctx.fillStyle = '#1E293B';
-  } else {
-    const qty = type === 'honey' ? '500 g' : type === 'cookie' ? '400 g' : type === 'shampoo' ? '250 ml' : '500 ml';
-    ctx.fillText(`• Net Quantity: ${qty} (Standard Metric Unit)`, 70, 290);
-  }
-
-  // 2. Retail Sale Price MRP (Rule 6(1)(e))
-  if (violationType === 'missing_tax' || type === 'cookie') {
-    ctx.fillStyle = '#DC2626';
-    ctx.fillText('• Maximum Retail Price (MRP): ₹ 220.00', 70, 335);
-    ctx.font = '13px Arial, sans-serif';
-    ctx.fillText('  [VIOLATION: Missing mandatory "(Inclusive of all taxes)" statement under Rule 6(1)(e)]', 70, 355);
-    ctx.font = '16px Arial, sans-serif';
-    ctx.fillStyle = '#1E293B';
-  } else {
-    const mrpVal = type === 'honey' ? '₹ 450.00' : type === 'shampoo' ? '₹ 280.00' : '₹ 199.00';
-    ctx.fillText(`• Maximum Retail Price: ${mrpVal} (Inclusive of all taxes)`, 70, 335);
-    ctx.font = '13px Arial, sans-serif';
-    ctx.fillStyle = '#64748B';
-    ctx.fillText('  Unit Sale Price: ₹ 0.90 / g (Compliant with 2022 Amendment)', 70, 355);
-    ctx.font = '16px Arial, sans-serif';
-    ctx.fillStyle = '#1E293B';
-  }
-
-  // 3. Month & Year of Mfg (Rule 6(1)(d))
-  ctx.fillText('• Month & Year of Packaging: 09/2026 (Best before 12 months)', 70, 385);
-
-  // 4. Manufacturer Address (Rule 6(1)(b))
-  if (violationType === 'missing_address' || type === 'shampoo') {
-    ctx.fillStyle = '#DC2626';
-    ctx.fillText('• Manufactured by: Herbal Naturals Care Ltd.', 70, 420);
-    ctx.font = '13px Arial, sans-serif';
-    ctx.fillText('  [VIOLATION: Complete postal physical address, premise number and PIN code missing]', 70, 440);
-    ctx.font = '16px Arial, sans-serif';
-    ctx.fillStyle = '#1E293B';
-  } else {
-    ctx.fillText('• Manufactured & Packed by: PureOrigins Agro India Pvt. Ltd.,', 70, 420);
-    ctx.font = '13px Arial, sans-serif';
-    ctx.fillStyle = '#475569';
-    ctx.fillText('  Plot No. 42-B, Sector 62, Industrial Area, Noida, Gautam Buddha Nagar, UP - 201301', 70, 440);
-    ctx.font = '16px Arial, sans-serif';
-    ctx.fillStyle = '#1E293B';
-  }
-
-  // 5. Consumer Care (Rule 6(1)(f))
-  ctx.fillText('• Consumer Care Officer: Tel: 1800-419-8800 | Email: grievance@pureorigins.in', 70, 470);
-
-  // Footer: Batch & Barcode
-  ctx.fillStyle = '#334155';
-  ctx.font = '14px Courier, monospace';
-  ctx.fillText('Batch: PO-2026/B894  |  FSSAI Lic: 10019011002341', 50, 530);
-
-  // Barcode visualization
-  const bx = 620, by = 515;
-  ctx.fillStyle = '#000000';
-  for (let i = 0; i < 30; i++) {
-    const barW = (i % 3 === 0 || i % 7 === 0) ? 4 : 2;
-    ctx.fillRect(bx + (i * 7), by, barW, 60);
-  }
-  ctx.font = '11px monospace';
-  ctx.fillText('8 901234 567890', bx + 25, by + 75);
-
-  // Official Specimen Stamp
-  ctx.strokeStyle = isCompliant ? '#16A34A' : '#DC2626';
-  ctx.lineWidth = 2.5;
-  ctx.strokeRect(50, 555, 490, 45);
-  ctx.fillStyle = isCompliant ? '#16A34A' : '#DC2626';
-  ctx.font = 'bold 14px Arial, sans-serif';
-  ctx.fillText(isCompliant ? 'SPECIMEN: 100% COMPLIANT PACKAGING (SAHI HAI)' : 'SPECIMEN: STATUTORY VIOLATION INJECTED (SAHI NAHI HAI)', 65, 583);
-
-  return canvas.toDataURL('image/png');
-}
 
 function renderPhysicalScanForm() {
   return `
-    <div class="space-y-6">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <span class="text-[11px] font-mono uppercase tracking-[0.2em] font-semibold text-text-muted">P R O D U C T &nbsp; I M A G E</span>
-        <span class="text-[11px] font-mono text-text-muted bg-black/5 dark:bg-white/5 px-3 py-1 rounded-full border border-border hidden md:inline-block">
-          ${state.gpsCoords}
+    <!-- BEGIN: ProductImageCard -->
+    <section class="bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-white/10 p-4 sm:p-5 shadow-card-soft" data-purpose="product-image-section">
+      <!-- Card Subheader -->
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <h2 class="text-[11px] font-semibold tracking-wider uppercase text-slate-700 dark:text-slate-300 font-mono">
+          PRODUCT IMAGE
+        </h2>
+        <!-- Location Access Badge -->
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-[#f1f5f9] dark:bg-slate-800 text-slate-500 dark:text-slate-300 border border-slate-200 dark:border-white/10">
+          ${state.gpsCoords || 'Location access denied'}
         </span>
       </div>
 
-      <!-- File Dropzone -->
-      <div id="dropzone" class="border-2 border-dashed border-border hover:border-blue-600/80 transition-all rounded-2xl p-6 flex flex-col items-center justify-center min-h-[230px] bg-black/5 dark:bg-white/5 relative overflow-hidden cursor-pointer group">
+      <!-- Dashed Capture / Upload Zone -->
+      <div id="dropzone" class="border border-dashed border-sky-300/80 dark:border-sky-500/40 bg-[#f8fbff]/60 dark:bg-slate-800/40 rounded-xl p-4 sm:p-5 text-center flex flex-col items-center justify-center relative cursor-pointer group">
         ${state.previewUrl ? `
           <div class="relative max-h-[220px] flex flex-col items-center justify-center">
-            <img src="${state.previewUrl}" alt="Packaged Commodity Preview" class="max-h-[190px] object-contain rounded-xl shadow-lg border border-border" />
-            <button id="btn-remove-preview" class="absolute -top-2 -right-2 bg-red-500 text-white p-1.5 rounded-full text-xs shadow-lg hover:bg-red-600 transition-colors z-30" title="Remove image">
-              <i data-lucide="x" class="w-4 h-4"></i>
+            <img src="${state.previewUrl}" alt="Packaged Commodity Preview" class="max-h-[180px] object-contain rounded-xl shadow-md border border-slate-200 dark:border-slate-700" />
+            <button type="button" id="btn-remove-preview" class="absolute -top-2 -right-2 bg-red-500 text-white p-1.5 rounded-full text-xs shadow-lg hover:bg-red-600 transition-colors z-30" title="Remove image">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
-            <div class="flex items-center gap-3 mt-2 font-mono text-[10px] text-text-muted">
-              <span class="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                <i data-lucide="check" class="w-3.5 h-3.5"></i> Specimen Ingested
-              </span>
+            <div class="flex items-center gap-2 mt-2 font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+              <span>✓ Specimen Ingested & Ready</span>
             </div>
           </div>
         ` : `
-          <p class="text-sm font-medium text-text-secondary mb-6 text-center">
-            Capture product photo or drop physical label images to begin compliance check.
+          <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium max-w-xs mb-4 leading-relaxed">
+            Capture product label clearly. Make sure all text is readable.
           </p>
-          <div class="flex gap-4">
-            <button type="button" id="btn-camera" class="bg-surface hover:bg-black/5 dark:hover:bg-white/5 text-text-primary border border-border px-6 py-3 rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center gap-2 hover:scale-105 active:scale-95">
-              <i data-lucide="camera" class="w-4 h-4"></i> Take Photo
+          <!-- Capture Action Buttons (Camera & Gallery) -->
+          <div class="grid grid-cols-2 gap-3 w-full max-w-xs">
+            <!-- Take Photo Tile -->
+            <button class="flex flex-col items-center justify-center gap-2 py-3.5 px-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-white/10 rounded-xl shadow-sm transition active:scale-[0.98]" data-purpose="action-take-photo" id="btn-camera" type="button">
+              <!-- Camera SVG Icon -->
+              <svg class="w-6 h-6 text-slate-700 dark:text-slate-200 stroke-[1.75]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" stroke-linecap="round" stroke-linejoin="round"></path>
+                <circle cx="12" cy="13" r="3" stroke-linecap="round" stroke-linejoin="round"></circle>
+              </svg>
+              <span class="text-xs font-medium text-slate-700 dark:text-slate-200">Take Photo</span>
             </button>
-            <button type="button" id="btn-select-file" class="bg-surface hover:bg-black/5 dark:hover:bg-white/5 text-text-primary border border-border px-6 py-3 rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center gap-2 hover:scale-105 active:scale-95">
-              <i data-lucide="file-up" class="w-4 h-4"></i> Browse Image
+            <!-- Gallery Tile -->
+            <button class="flex flex-col items-center justify-center gap-2 py-3.5 px-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-white/10 rounded-xl shadow-sm transition active:scale-[0.98]" data-purpose="action-open-gallery" id="btn-select-file" type="button">
+              <!-- Photo/Image Gallery SVG Icon -->
+              <svg class="w-6 h-6 text-slate-700 dark:text-slate-200 stroke-[1.75]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <rect height="18" rx="2" ry="2" stroke-linecap="round" stroke-linejoin="round" width="18" x="3" y="3"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <path d="M21 15l-5-5L5 21" stroke-linecap="round" stroke-linejoin="round"></path>
+              </svg>
+              <span class="text-xs font-medium text-slate-700 dark:text-slate-200">Gallery</span>
             </button>
           </div>
         `}
@@ -1692,225 +1568,118 @@ function renderPhysicalScanForm() {
         <input type="file" id="file-input" class="hidden" accept="image/*" />
       </div>
 
-      <!-- AI Packaging Label Generator & Specimen Suite -->
-      <div class="p-4 rounded-2xl bg-blue-500/5 border border-blue-500/15 space-y-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <span class="p-1.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
-              <i data-lucide="sparkles" class="w-4 h-4"></i>
-            </span>
-            <div>
-              <span class="text-xs font-bold text-text-primary">🎨 AI Label Generator (Image Generate Karo)</span>
-              <p class="text-[11px] text-text-muted">Click below to generate high-res packaging label images & test if AI says "Sahi h" or "Nahi h":</p>
-            </div>
-          </div>
-          <button type="button" id="btn-toggle-custom-generator" class="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
-            <i data-lucide="sliders" class="w-3.5 h-3.5"></i> Custom Creator
-          </button>
-        </div>
-
-        <!-- Quick 4 Presets -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <button type="button" class="btn-sample p-2.5 rounded-xl border border-red-500/30 bg-red-500/5 hover:bg-red-500/10 text-left transition-all group" data-sample="cookie">
-            <div class="text-[11px] font-bold text-red-600 group-hover:scale-105 transition-transform flex items-center gap-1">
-              <span>🍪 Biscuit Pack</span>
-            </div>
-            <div class="text-[10px] text-text-muted mt-0.5">MRP Tax Missing</div>
-            <span class="text-[9px] font-mono text-red-500 font-bold block mt-1">Expected: SAHI NAHI HAI</span>
-          </button>
-
-          <button type="button" class="btn-sample p-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 text-left transition-all group" data-sample="honey">
-            <div class="text-[11px] font-bold text-emerald-600 group-hover:scale-105 transition-transform flex items-center gap-1">
-              <span>🍯 Honey Jar</span>
-            </div>
-            <div class="text-[10px] text-text-muted mt-0.5">100% Compliant</div>
-            <span class="text-[9px] font-mono text-emerald-500 font-bold block mt-1">Expected: SAHI HAI</span>
-          </button>
-
-          <button type="button" class="btn-sample p-2.5 rounded-xl border border-red-500/30 bg-red-500/5 hover:bg-red-500/10 text-left transition-all group" data-sample="shampoo">
-            <div class="text-[11px] font-bold text-red-600 group-hover:scale-105 transition-transform flex items-center gap-1">
-              <span>🧴 Shampoo 250ml</span>
-            </div>
-            <div class="text-[10px] text-text-muted mt-0.5">Address Missing</div>
-            <span class="text-[9px] font-mono text-red-500 font-bold block mt-1">Expected: SAHI NAHI HAI</span>
-          </button>
-
-          <button type="button" class="btn-sample p-2.5 rounded-xl border border-red-500/30 bg-red-500/5 hover:bg-red-500/10 text-left transition-all group" data-sample="milk">
-            <div class="text-[11px] font-bold text-red-600 group-hover:scale-105 transition-transform flex items-center gap-1">
-              <span>🥛 Milk Carton</span>
-            </div>
-            <div class="text-[10px] text-text-muted mt-0.5">Non-Metric Units</div>
-            <span class="text-[9px] font-mono text-red-500 font-bold block mt-1">Expected: SAHI NAHI HAI</span>
-          </button>
-        </div>
-
-        <!-- Collapsible Custom Generator Panel -->
-        <div id="custom-generator-panel" class="hidden p-3.5 rounded-xl bg-surface border border-border space-y-3 pt-3">
-          <div class="text-xs font-bold text-text-primary flex items-center gap-1.5">
-            <i data-lucide="edit-3" class="w-4 h-4 text-blue-500"></i> Generate Custom Packaging Label Image
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label class="block text-[10px] font-mono uppercase text-text-muted font-bold mb-1">Product Title</label>
-              <input type="text" id="gen-custom-title" placeholder="e.g. Pure Desi Ghee 1L" value="Pure A2 Desi Cow Ghee (1 Litre)" class="w-full bg-black/5 dark:bg-white/5 border border-border rounded-lg px-3 py-2 text-xs text-text-primary" />
-            </div>
-            <div>
-              <label class="block text-[10px] font-mono uppercase text-text-muted font-bold mb-1">Brand Name</label>
-              <input type="text" id="gen-custom-brand" placeholder="e.g. Vedic Farms" value="Vedic Natural Dairy" class="w-full bg-black/5 dark:bg-white/5 border border-border rounded-lg px-3 py-2 text-xs text-text-primary" />
-            </div>
-            <div>
-              <label class="block text-[10px] font-mono uppercase text-text-muted font-bold mb-1">Compliance Outcome</label>
-              <select id="gen-custom-status" class="w-full bg-black/5 dark:bg-white/5 border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-medium">
-                <option value="compliant">100% Compliant (Sahi Hai)</option>
-                <option value="missing_tax">Violation: Missing Taxes in MRP (Sahi Nahi Hai)</option>
-                <option value="missing_address">Violation: Missing Manufacturer Postal Address</option>
-                <option value="invalid_unit">Violation: Non-Metric Net Qty (Fluid Oz)</option>
-              </select>
-            </div>
-          </div>
-          <div class="flex justify-end">
-            <button type="button" id="btn-generate-custom-specimen" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md">
-              <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> Generate &amp; Load Specimen
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Form Inputs matching Screenshot 2 -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        <div>
-          <label class="block text-[10px] font-mono uppercase tracking-[0.15em] text-text-muted font-bold mb-2">
-            P R O D U C T &nbsp; N A M E &nbsp; ( O P T I O N A L )
+      <!-- Form Inputs Group -->
+      <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <!-- Input: Product Name -->
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono" for="product-name">
+            PRODUCT NAME (OPTIONAL)
           </label>
-          <input type="text" id="scan-product-name" placeholder="e.g. Organic Honey" value="${state.selectedFile ? state.selectedFile.name.replace(/\.[^/.]+$/, '') : ''}" class="w-full bg-black/5 dark:bg-white/5 border border-border rounded-xl px-4 py-3.5 text-xs text-text-primary focus:outline-none focus:border-blue-600 transition-colors font-medium" />
+          <input class="w-full text-xs sm:text-sm rounded-lg border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 px-3 py-2 text-slate-700 dark:text-white shadow-sm" id="product-name" name="product-name" placeholder="e.g. Organic Honey" value="${state.selectedFile ? state.selectedFile.name.replace(/\.[^/.]+$/, '') : ''}" type="text"/>
         </div>
-        <div>
-          <label class="block text-[10px] font-mono uppercase tracking-[0.15em] text-text-muted font-bold mb-2">
-            S O U R C E &nbsp; T Y P E
+        <!-- Dropdown: Source Type -->
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono" for="source-type">
+            SOURCE TYPE
           </label>
-          <select id="scan-source-type" class="w-full bg-black/5 dark:bg-white/5 border border-border rounded-xl px-4 py-3.5 text-xs text-text-primary focus:outline-none focus:border-blue-600 transition-colors font-medium">
-            <option value="Physical Label (Package)">Physical Label (Package)</option>
-            <option value="Warehouse Pre-pack Unit">Warehouse Pre-pack Unit</option>
-            <option value="E-Commerce Listing">E-Commerce Listing</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Action Button -->
-      <button
-        type="button"
-        id="btn-run-check"
-        class="btn-tactile-theme group relative w-full px-8 py-4 font-bold text-white uppercase tracking-wider rounded-2xl bg-blue-600 border-b-[8px] border-blue-900 active:border-b-[0px] active:translate-y-[8px] transition-all duration-100 shadow-[0_15px_25px_-10px_rgba(37,99,235,0.8)] focus:outline-none focus:ring-4 focus:ring-blue-400/50 cursor-pointer ${state.isScanning ? 'opacity-60 pointer-events-none' : ''}"
-      >
-        <span
-          class="btn-tactile-shading absolute inset-0 w-full h-full rounded-2xl bg-gradient-to-t from-black/25 to-transparent pointer-events-none"
-        ></span>
-
-        <span
-          class="btn-tactile-specular absolute top-2 left-3 w-8 h-3 rounded-full bg-white/40 blur-[2px] pointer-events-none"
-        ></span>
-
-        <span class="btn-tactile-content relative flex items-center justify-center gap-2.5 drop-shadow-md text-sm sm:text-base font-extrabold text-white">
-          ${state.isScanning 
-            ? '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Analyzing with Google Gemini & OpenRouter...' 
-            : `<svg class="w-6 h-6 animate-pulse text-white drop-shadow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 3c0 4.5-3.5 8-8 8 4.5 0 8 3.5 8 8 0-4.5 3.5-8 8-8-4.5 0-8-3.5-8-8z"></path>
-                <path d="M19 3v4"></path>
-                <path d="M17 5h4"></path>
-                <circle cx="5.5" cy="18.5" r="1.5" fill="currentColor"></circle>
+          <div class="relative">
+            <select class="w-full text-xs sm:text-sm appearance-none rounded-lg border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 px-3 py-2 pr-8 text-slate-800 dark:text-white font-medium focus:border-slate-400 focus:ring-1 focus:ring-slate-400 shadow-sm" id="source-type" name="source-type">
+              <option selected value="Physical Label (Package)">Physical Label (Package)</option>
+              <option value="Package Leaflet / Insert">Package Leaflet / Insert</option>
+              <option value="Outer Box Packaging">Outer Box Packaging</option>
+            </select>
+            <!-- Dropdown custom arrow -->
+            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
               </svg>
-              <span>RUN COMPLIANCE CHECK</span>`}
-        </span>
-      </button>
-    </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Primary Action CTA Button -->
+      <div class="mt-5">
+        <button class="w-full py-3 px-4 rounded-xl bg-brand-navy hover:bg-brand-hoverNavy active:scale-[0.99] text-white font-medium text-xs sm:text-sm tracking-wide shadow-btn-cta transition duration-150 flex items-center justify-center gap-2 cursor-pointer ${state.isScanning ? 'opacity-60 pointer-events-none' : ''}" data-purpose="submit-compliance-check" id="btn-run-check" type="button">
+          ${state.isScanning ? `
+            <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span>AI inspecting label...</span>
+          ` : `
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <span>Run Compliance Check</span>
+          `}
+        </button>
+      </div>
+    </section>
+    <!-- END: ProductImageCard -->
   `;
 }
 
 function renderWebPatrolForm() {
   return `
-    <div class="space-y-6">
-      <div class="flex items-center justify-between">
-        <span class="text-[11px] font-mono uppercase tracking-[0.2em] font-semibold text-text-muted">E - C O M M E R C E &nbsp; U R L</span>
-        <span class="text-[11px] font-mono text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded-full border border-blue-500/20 flex items-center gap-1.5">
-          <i data-lucide="globe" class="w-3.5 h-3.5"></i> Web Scraper Active
+    <!-- BEGIN: WebPatrolCard -->
+    <section class="bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200 dark:border-white/10 p-4 sm:p-5 shadow-card-soft" data-purpose="web-patrol-section">
+      <!-- Card Subheader -->
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <h2 class="text-[11px] font-semibold tracking-wider uppercase text-slate-700 dark:text-slate-300 font-mono">
+          E-COMMERCE URL
+        </h2>
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-[#f1f5f9] dark:bg-slate-800 text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-white/10">
+          Web Scraper Active
         </span>
       </div>
 
-      <!-- URL Hero Box (Matching screenshot 1) -->
-      <div class="border-2 border-dashed border-blue-400/50 rounded-2xl p-8 flex flex-col items-center justify-center min-h-[190px] bg-blue-500/5 text-center">
-        <div class="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-600 mb-3">
-          <i data-lucide="link-2" class="w-6 h-6"></i>
-        </div>
-        <h3 class="text-base font-semibold text-text-primary">Paste a product URL</h3>
-        <p class="text-xs text-text-muted mt-1">Supports Amazon, Flipkart, JioMart, Blinkit, BigBasket, etc.</p>
-      </div>
-
-      <!-- Blueprint Module: Marketplace Quick Ingestion Presets -->
-      <div class="p-3 rounded-xl bg-blue-500/5 border border-blue-500/15 space-y-2">
-        <span class="text-[10px] font-mono uppercase font-bold text-text-muted flex items-center gap-1.5">
-          <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500"></i> Direct Marketplace Scraping Presets:
-        </span>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <button type="button" class="btn-web-preset px-2.5 py-1.5 rounded-lg border border-border bg-surface text-[11px] font-semibold text-text-primary hover:border-amber-500 transition-colors flex items-center gap-1.5" data-url="https://www.amazon.in/dp/B087F91J92/pure-origins-raw-honey" data-hint="Himalayan Organic Raw Honey (500g)">
-            <span>🛒 Amazon IN</span>
+      <!-- Dashed Web Patrol Zone -->
+      <div class="border border-dashed border-sky-300/80 dark:border-sky-500/40 bg-[#f8fbff]/60 dark:bg-slate-800/40 rounded-xl p-4 sm:p-5 text-center flex flex-col items-center justify-center">
+        <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium max-w-xs mb-3 leading-relaxed">
+          Quick marketplace presets for instant statutory audit testing:
+        </p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
+          <button type="button" class="btn-web-preset px-2.5 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-blue-400 transition text-center" data-url="https://www.amazon.in/dp/B087F91J92/pure-origins-raw-honey" data-hint="Himalayan Raw Honey (500g)">
+            🛒 Amazon
           </button>
-          <button type="button" class="btn-web-preset px-2.5 py-1.5 rounded-lg border border-border bg-surface text-[11px] font-semibold text-text-primary hover:border-blue-500 transition-colors flex items-center gap-1.5" data-url="https://flipkart.com/nutridelight-cookies-400g/p/itm12345" data-hint="NutriDelight Almond Cookies (400g)">
-            <span>🛍️ Flipkart</span>
+          <button type="button" class="btn-web-preset px-2.5 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-blue-400 transition text-center" data-url="https://flipkart.com/nutridelight-badam-biscuit-400g/p/itm123" data-hint="NutriDelight Almond Cookies (400g)">
+            🛍️ Flipkart
           </button>
-          <button type="button" class="btn-web-preset px-2.5 py-1.5 rounded-lg border border-border bg-surface text-[11px] font-semibold text-text-primary hover:border-emerald-500 transition-colors flex items-center gap-1.5" data-url="https://blinkit.com/prn/vedic-pure-cow-ghee-1l/prid/394821" data-hint="Vedic Pure A2 Cow Ghee (1 Litre)">
-            <span>⚡ Blinkit</span>
+          <button type="button" class="btn-web-preset px-2.5 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-blue-400 transition text-center" data-url="https://blinkit.com/prn/organic-cow-ghee-1l/prid/98765" data-hint="Organic Pure Cow Ghee (1L)">
+            ⚡ Blinkit
           </button>
-          <button type="button" class="btn-web-preset px-2.5 py-1.5 rounded-lg border border-border bg-surface text-[11px] font-semibold text-text-primary hover:border-purple-500 transition-colors flex items-center gap-1.5" data-url="https://www.zeptonow.com/pn/amul-gold-milk-500ml/pvid/10293" data-hint="Amul Gold Homogenized Milk (500ml)">
-            <span>🛵 Zepto</span>
+          <button type="button" class="btn-web-preset px-2.5 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-blue-400 transition text-center" data-url="https://www.zeptonow.com/pn/amul-gold-milk-500ml/pvid/10293" data-hint="Amul Gold Homogenized Milk (500ml)">
+            🛵 Zepto
           </button>
         </div>
       </div>
 
-      <!-- URL Input Field -->
-      <div>
-        <label class="block text-[10px] font-mono uppercase tracking-[0.15em] text-text-muted font-bold mb-1.5">
-          P R O D U C T &nbsp; L I S T I N G &nbsp; U R L
-        </label>
-        <input type="url" id="web-patrol-url" placeholder="https://www.amazon.in/dp/B08..." value="https://www.amazon.in/dp/B087F91J92/pure-origins-raw-honey" class="w-full bg-black/5 dark:bg-white/5 border border-border rounded-xl px-4 py-3.5 text-xs text-text-primary focus:outline-none focus:border-blue-600 transition-colors font-mono" />
+      <!-- Form Inputs Group -->
+      <div class="mt-4 space-y-3">
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono" for="web-patrol-url">
+            PRODUCT LISTING URL
+          </label>
+          <input class="w-full text-xs sm:text-sm rounded-lg border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 px-3 py-2 text-slate-700 dark:text-white font-mono shadow-sm" id="web-patrol-url" placeholder="https://www.amazon.in/dp/..." value="https://www.amazon.in/dp/B087F91J92/pure-origins-raw-honey" type="url"/>
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono" for="web-patrol-hint">
+            PRODUCT NAME HINT (OPTIONAL)
+          </label>
+          <input class="w-full text-xs sm:text-sm rounded-lg border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 placeholder:text-slate-400 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 px-3 py-2 text-slate-700 dark:text-white shadow-sm" id="web-patrol-hint" placeholder="e.g. Organic Honey" value="Himalayan Organic Raw Honey (500g)" type="text"/>
+        </div>
       </div>
 
-      <!-- Product Name Hint -->
-      <div>
-        <label class="block text-[10px] font-mono uppercase tracking-[0.15em] text-text-muted font-bold mb-1.5">
-          P R O D U C T &nbsp; N A M E &nbsp; H I N T &nbsp; ( O P T I O N A L )
-        </label>
-        <input type="text" id="web-patrol-hint" placeholder="e.g. Organic Honey" value="Himalayan Organic Raw Honey (500g)" class="w-full bg-black/5 dark:bg-white/5 border border-border rounded-xl px-4 py-3.5 text-xs text-text-primary focus:outline-none focus:border-blue-600 transition-colors font-medium" />
+      <!-- Primary Action CTA Button -->
+      <div class="mt-5">
+        <button class="w-full py-3 px-4 rounded-xl bg-brand-navy hover:bg-brand-hoverNavy active:scale-[0.99] text-white font-medium text-xs sm:text-sm tracking-wide shadow-btn-cta transition duration-150 flex items-center justify-center gap-2 cursor-pointer ${state.isScanning ? 'opacity-60 pointer-events-none' : ''}" data-purpose="submit-web-compliance-check" id="btn-run-web-check" type="button">
+          ${state.isScanning ? `
+            <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span>AI auditing listing...</span>
+          ` : `
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <span>Run Web Patrol Audit</span>
+          `}
+        </button>
       </div>
-
-      <!-- Action Button -->
-      <button
-        type="button"
-        id="btn-run-web-check"
-        class="btn-tactile-theme group relative w-full px-8 py-4 font-bold text-white uppercase tracking-wider rounded-2xl bg-blue-600 border-b-[8px] border-blue-900 active:border-b-[0px] active:translate-y-[8px] transition-all duration-100 shadow-[0_15px_25px_-10px_rgba(37,99,235,0.8)] focus:outline-none focus:ring-4 focus:ring-blue-400/50 cursor-pointer ${state.isScanning ? 'opacity-60 pointer-events-none' : ''}"
-      >
-        <span
-          class="btn-tactile-shading absolute inset-0 w-full h-full rounded-2xl bg-gradient-to-t from-black/25 to-transparent pointer-events-none"
-        ></span>
-
-        <span
-          class="btn-tactile-specular absolute top-2 left-3 w-8 h-3 rounded-full bg-white/40 blur-[2px] pointer-events-none"
-        ></span>
-
-        <span class="btn-tactile-content relative flex items-center justify-center gap-2.5 drop-shadow-md text-sm sm:text-base font-extrabold text-white">
-          ${state.isScanning 
-            ? '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Scraping & Auditing Declarations...' 
-            : `<svg class="w-6 h-6 animate-pulse text-white drop-shadow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 3c0 4.5-3.5 8-8 8 4.5 0 8 3.5 8 8 0-4.5 3.5-8 8-8-4.5 0-8-3.5-8-8z"></path>
-                <path d="M19 3v4"></path>
-                <path d="M17 5h4"></path>
-                <circle cx="5.5" cy="18.5" r="1.5" fill="currentColor"></circle>
-              </svg>
-              <span>RUN WEB PATROL AUDIT</span>`}
-        </span>
-      </button>
-
-
-    </div>
+    </section>
+    <!-- END: WebPatrolCard -->
   `;
 }
 
@@ -1921,7 +1690,7 @@ function renderActiveScanStepper() {
     { num: 1, title: 'Packaged Product Ingestion', desc: 'Decoding image stream and metadata', icon: 'package' },
     { num: 2, title: 'Scan / Upload Capture', desc: 'Normalizing resolution & lighting', icon: 'camera' },
     { num: 3, title: 'Label & PDP Area Detection', desc: 'Isolating Principal Display Panel boundaries', icon: 'tag' },
-    { num: 4, title: 'OCR & Multimodal Vision Engine', desc: 'Google Gemini (Key Rotation) & OpenRouter', icon: 'search' },
+    { num: 4, title: 'OCR & Multimodal Vision Engine', desc: 'Neural OCR & Multimodal Feature Extraction', icon: 'search' },
     { num: 5, title: 'Mandatory Declaration Extraction', desc: 'Mapping MRP, Net Qty, Dates, Packer details', icon: 'lightbulb' },
     { num: 6, title: 'Rule Validation (LMPC Rules, 2011)', desc: 'Checking Rule 6(1)(a-f) & Rule 9(3) ratios', icon: 'scale' },
     { num: 7, title: 'Compliance Report & Penalty Ledger', desc: 'Issuing statutory determination verdict', icon: 'file-text' }
@@ -1936,17 +1705,15 @@ function renderActiveScanStepper() {
 
       <div class="space-y-2.5">
         ${stages.map(s => {
-          const isDone = s.num < step;
-          const isCurrent = s.num === step;
-          return `
-            <div class="flex items-start gap-3 p-2 rounded-xl transition-colors ${
-              isCurrent ? 'bg-blue-500/10 border border-blue-500/30' :
-              isDone ? 'bg-emerald-500/5' : 'opacity-40'
-            }">
-              <div class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold ${
-                isDone ? 'bg-emerald-500 text-white' :
-                isCurrent ? 'bg-blue-600 text-white animate-pulse' : 'bg-black/10 dark:bg-white/10 text-text-muted'
-              }">
+    const isDone = s.num < step;
+    const isCurrent = s.num === step;
+    return `
+            <div class="flex items-start gap-3 p-2 rounded-xl transition-colors ${isCurrent ? 'bg-blue-500/10 border border-blue-500/30' :
+        isDone ? 'bg-emerald-500/5' : 'opacity-40'
+      }">
+              <div class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold ${isDone ? 'bg-emerald-500 text-white' :
+        isCurrent ? 'bg-blue-600 text-white animate-pulse' : 'bg-black/10 dark:bg-white/10 text-text-muted'
+      }">
                 ${isDone ? '✓' : s.num}
               </div>
               <div class="flex-1 min-w-0">
@@ -1961,11 +1728,11 @@ function renderActiveScanStepper() {
               </div>
             </div>
           `;
-        }).join('')}
+  }).join('')}
       </div>
 
       <div class="mt-3 p-2.5 rounded-lg bg-black/5 dark:bg-white/5 font-mono text-[10px] text-text-secondary border border-border">
-        [Engine] 1st: Google Gemini Vision (Key #${(state.currentGeminiKeyIndex % state.geminiApiKeys.length) + 1} active) &bull; Failover: OpenRouter<br/>
+        [Engine] Automated Multimodal Vision Engine<br/>
         [Status] Real-time statutory analysis in progress...
       </div>
     </div>
@@ -2006,11 +1773,11 @@ function initUploadInteractions() {
     btnSelect.addEventListener('click', (e) => { e.stopPropagation(); fileInput.click(); });
   }
   if (btnCamera && fileInput) {
-    btnCamera.addEventListener('click', (e) => { 
+    btnCamera.addEventListener('click', (e) => {
       e.stopPropagation();
       // On devices with cameras, triggers camera; on desktop, file picker
       fileInput.setAttribute('capture', 'environment');
-      fileInput.click(); 
+      fileInput.click();
     });
   }
   if (dropzone && fileInput) {
@@ -2026,73 +1793,6 @@ function initUploadInteractions() {
   if (fileInput) {
     fileInput.addEventListener('change', (e) => {
       if (e.target.files.length) handleFile(e.target.files[0]);
-    });
-  }
-
-  // Sample benchmark & AI generator buttons
-  document.querySelectorAll('.btn-sample').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const sample = btn.getAttribute('data-sample');
-      let prodName = '';
-      if (sample === 'cookie') {
-        state.previewUrl = generateLabelCanvasImage('cookie');
-        prodName = 'NutriDelight Almond Cookies (400g)';
-      } else if (sample === 'honey') {
-        state.previewUrl = generateLabelCanvasImage('honey');
-        prodName = 'Himalayan Organic Raw Forest Honey (500g)';
-      } else if (sample === 'shampoo') {
-        state.previewUrl = generateLabelCanvasImage('shampoo');
-        prodName = 'Ayurvedic Neem & Aloe Shampoo (250ml)';
-      } else if (sample === 'milk') {
-        state.previewUrl = generateLabelCanvasImage('milk_invalid_unit');
-        prodName = 'PureFarm Daily Fresh Milk Carton (500ml)';
-      }
-      const nameInput = document.getElementById('scan-product-name');
-      if (nameInput) nameInput.value = prodName;
-      const viewport = document.getElementById('app-viewport');
-      viewport.innerHTML = renderUploadPage();
-      initUploadInteractions();
-      if (window.lucide) window.lucide.createIcons();
-      showToast(`Generated AI packaging label: ${prodName}. Ready for compliance check!`, 'info');
-    });
-  });
-
-  // Custom Generator Toggle
-  const btnToggleCustom = document.getElementById('btn-toggle-custom-generator');
-  const customPanel = document.getElementById('custom-generator-panel');
-  if (btnToggleCustom && customPanel) {
-    btnToggleCustom.addEventListener('click', (e) => {
-      e.stopPropagation();
-      customPanel.classList.toggle('hidden');
-    });
-  }
-
-  // Generate Custom Specimen
-  const btnGenCustom = document.getElementById('btn-generate-custom-specimen');
-  if (btnGenCustom) {
-    btnGenCustom.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const title = document.getElementById('gen-custom-title')?.value || 'Packaged Commodity Item';
-      const brand = document.getElementById('gen-custom-brand')?.value || 'Verified FMCG Brand';
-      const statusChoice = document.getElementById('gen-custom-status')?.value || 'compliant';
-      
-      const isCompliant = statusChoice === 'compliant';
-      state.previewUrl = generateLabelCanvasImage('custom', {
-        name: title,
-        brand: brand,
-        isCompliant: isCompliant,
-        violationType: isCompliant ? 'none' : statusChoice
-      });
-
-      const nameInput = document.getElementById('scan-product-name');
-      if (nameInput) nameInput.value = title;
-
-      const viewport = document.getElementById('app-viewport');
-      viewport.innerHTML = renderUploadPage();
-      initUploadInteractions();
-      if (window.lucide) window.lucide.createIcons();
-      showToast(`Generated custom ${isCompliant ? 'Compliant (Sahi)' : 'Non-Compliant (Galat)'} label image!`, 'success');
     });
   }
 
@@ -2123,42 +1823,106 @@ function initUploadInteractions() {
     });
   });
 
-  // Run Check Buttons
-  const btnRun = document.getElementById('btn-run-check');
-  const btnRunWeb = document.getElementById('btn-run-web-check');
+  // Run Check Buttons with lightweight UI feedback
+  const btnRun = document.getElementById('btn-run-check') || document.querySelector('[data-purpose="submit-compliance-check"]');
+  const btnRunWeb = document.getElementById('btn-run-web-check') || document.querySelector('[data-purpose="submit-web-compliance-check"]');
 
   if (btnRun) {
-    btnRun.addEventListener('click', () => triggerScan(false));
+    btnRun.addEventListener('click', () => {
+      const terminal = document.querySelector('[data-purpose="terminal-container"] span');
+      if (terminal) {
+        terminal.classList.remove('text-slate-400');
+        terminal.classList.add('text-slate-600', 'dark:text-slate-200');
+        terminal.textContent = 'Analyzing inputs & starting OCR extraction...';
+      }
+      triggerScan(false);
+    });
   }
   if (btnRunWeb) {
-    btnRunWeb.addEventListener('click', () => triggerScan(true));
+    btnRunWeb.addEventListener('click', () => {
+      const terminal = document.querySelector('[data-purpose="terminal-container"] span');
+      if (terminal) {
+        terminal.classList.remove('text-slate-400');
+        terminal.classList.add('text-slate-600', 'dark:text-slate-200');
+        terminal.textContent = 'Analyzing inputs & starting OCR extraction...';
+      }
+      triggerScan(true);
+    });
+  }
+}
+
+// Client-side image preprocessing: downscale + JPEG re-encode before the OCR upload.
+// A 12MP phone photo (~4-6 MB raw, ~5-8 MB as base64) becomes a ~150-250 KB payload with
+// no loss of label text readability, cutting upload time by 10-20x on mobile networks.
+// 1280px / q0.8 is the sweet spot: Gemini's vision encoder reads label text cleanly at
+// this resolution, and every extra megapixel only adds upload + inference latency.
+async function compressImageToDataUrl(file, maxEdge = 1280, quality = 0.8) {
+  const readOriginal = () => new Promise((resolve) => {
+    const r = new FileReader();
+    r.onload = (e) => resolve(e.target.result);
+    r.readAsDataURL(file);
+  });
+  try {
+    let bitmap;
+    if (window.createImageBitmap) {
+      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } else {
+      bitmap = await new Promise((resolve, reject) => {
+        const img = new Image();
+        const objUrl = URL.createObjectURL(file);
+        img.onload = () => { URL.revokeObjectURL(objUrl); resolve(img); };
+        img.onerror = () => { URL.revokeObjectURL(objUrl); reject(new Error('Image decode failed')); };
+        img.src = objUrl;
+      });
+    }
+    const w = bitmap.width || bitmap.naturalWidth;
+    const h = bitmap.height || bitmap.naturalHeight;
+    if (!w || !h) return await readOriginal();
+    const scale = Math.min(1, maxEdge / Math.max(w, h));
+    if (scale === 1 && file.size < 600 * 1024) return await readOriginal();
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', quality);
+  } catch (e) {
+    console.warn('[PackCheck] Image compression failed, sending original file:', e);
+    return await readOriginal();
   }
 }
 
 // Multi-Input Pipeline: Ingests Images and PDF Specifications
-function handleFile(file) {
+async function handleFile(file) {
   state.selectedFile = file;
 
   // Handle PDF Uploads via PDF.js
   if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
     const fileReader = new FileReader();
-    fileReader.onload = async function() {
+    fileReader.onload = async function () {
       const typedarray = new Uint8Array(this.result);
       if (window.pdfjsLib) {
         try {
           const pdf = await pdfjsLib.getDocument(typedarray).promise;
           const page = await pdf.getPage(1);
-          const scale = 1.5;
+          // Cap render resolution so the canvas payload stays small (OCR needs ~1280px, not more)
+          const baseViewport = page.getViewport({ scale: 1 });
+          const scale = Math.min(1.5, 1280 / Math.max(baseViewport.width, baseViewport.height));
           const viewport = page.getViewport({ scale: scale });
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
           canvas.height = viewport.height;
           canvas.width = viewport.width;
+          context.fillStyle = '#ffffff';
+          context.fillRect(0, 0, canvas.width, canvas.height);
 
           await page.render({ canvasContext: context, viewport: viewport }).promise;
-          state.previewUrl = canvas.toDataURL('image/png');
+          state.previewUrl = canvas.toDataURL('image/jpeg', 0.8);
 
-          const nameInput = document.getElementById('scan-product-name');
+          const nameInput = document.getElementById('product-name') || document.getElementById('scan-product-name');
           if (nameInput && !nameInput.value) {
             nameInput.value = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
           }
@@ -2177,33 +1941,50 @@ function handleFile(file) {
     return;
   }
 
-  // Standard Image Handling
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    state.previewUrl = e.target.result;
-    const nameInput = document.getElementById('scan-product-name');
-    if (nameInput && !nameInput.value) {
-      nameInput.value = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-    }
-    const viewport = document.getElementById('app-viewport');
-    viewport.innerHTML = renderUploadPage();
-    initUploadInteractions();
-    if (window.lucide) window.lucide.createIcons();
-  };
-  reader.readAsDataURL(file);
+  // Standard Image Handling (compressed before upload for fast OCR turnaround)
+  state.previewUrl = await compressImageToDataUrl(file);
+  const nameInput = document.getElementById('product-name') || document.getElementById('scan-product-name');
+  if (nameInput && !nameInput.value) {
+    nameInput.value = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+  }
+  const viewport = document.getElementById('app-viewport');
+  viewport.innerHTML = renderUploadPage();
+  initUploadInteractions();
+  if (window.lucide) window.lucide.createIcons();
 }
 
 // --- REAL AI SCANNER & STATUTORY ADJUDICATION ENGINE ---
 async function triggerScan(isWeb) {
+  // GUARD: a physical inspection needs a real specimen. Without this, the AI used to
+  // hallucinate a full "result" from the product-name hint alone when no image was attached.
+  if (!isWeb && !state.previewUrl) {
+    showToast('Upload a product label first to run the inspection.', 'error');
+    const dropzone = document.getElementById('dropzone');
+    if (dropzone) {
+      dropzone.classList.remove('pp-shake');
+      void dropzone.offsetWidth; // restart the animation if it was already shaking
+      dropzone.classList.add('pp-shake');
+      dropzone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    return;
+  }
+  const webHint = isWeb ? (document.getElementById('web-patrol-hint')?.value || '').trim() : '';
+  if (isWeb && !state.previewUrl && !webHint) {
+    showToast('Enter a product URL or name to patrol.', 'error');
+    return;
+  }
+
   state.isScanning = true;
   state.currentStep = 1;
-  
+  const scanStartMs = Date.now();
+
   const viewport = document.getElementById('app-viewport');
   viewport.innerHTML = renderUploadPage();
   initUploadInteractions();
   if (window.lucide) window.lucide.createIcons();
 
   const advanceStep = (step) => {
+    if (step <= state.currentStep) return; // monotonic — a stale animation timer can't regress the UI
     state.currentStep = step;
     const container = document.getElementById('processing-steps-container');
     if (container) {
@@ -2214,94 +1995,175 @@ async function triggerScan(isWeb) {
 
   let aiResult = null;
 
-  // Cloud AI Pipeline with Gemini 2.5 Flash Vision
-  setTimeout(() => advanceStep(2), 400);
-  setTimeout(() => advanceStep(3), 900);
-  setTimeout(() => advanceStep(4), 1500);
+  // Stepper animation runs in parallel with the network call — it never blocks the result.
+  setTimeout(() => advanceStep(2), 0);
+  setTimeout(() => advanceStep(3), 300);
+  setTimeout(() => advanceStep(4), 700);
 
-  // ROTATION & FALLBACK PIPELINE:
-  // 1st Priority: Google Gemini API (Rotates between Key 1 and Key 2)
-  // 2nd Priority: OpenRouter Multimodal Vision Fallback
-  // 3rd Priority: Local Deterministic Rule Engine Fallback
+  // Live elapsed-seconds readout on the CTA — makes the AI wait accountable.
+  const elapsedTimer = setInterval(() => {
+    const el = document.getElementById('scan-elapsed');
+    if (el) el.textContent = `${((Date.now() - scanStartMs) / 1000).toFixed(1)}s`;
+  }, 100);
 
-  const keysToTry = [];
-  const startIdx = state.currentGeminiKeyIndex % state.geminiApiKeys.length;
-  for (let i = 0; i < state.geminiApiKeys.length; i++) {
-    const idx = (startIdx + i) % state.geminiApiKeys.length;
-    const keyVal = state.geminiApiKeys[idx];
-    if (keyVal && !keysToTry.some(k => k.key === keyVal)) {
-      keysToTry.push({ key: keyVal, keyNum: idx + 1, index: idx });
+  // UNIFIED AI RACE PIPELINE:
+  // 1st Priority: All Google Gemini keys race in parallel (staggered) — first response wins
+  // 2nd Priority: OpenRouter multimodal vision joins the same race a few seconds in
+  // Hard deadline: 20s, after which the local deterministic rule engine answers
+  try {
+    aiResult = await runAiPipelineRace(isWeb);
+  } catch (aiErr) {
+    console.warn('[AI Pipeline] All cloud AI engines failed — answering with the local deterministic rule engine:', aiErr);
+    showToast('Cloud AI unreachable - local rule engine verdict generated', 'warning');
+    aiResult = generateLocalRuleCheck(isWeb);
+    aiResult.inspectionEngine = 'Automated AI Inspection Engine';
+  }
+
+  try {
+    // Stages 5-7 are pure client-side adjudication on the already-received AI result — rapid-fire.
+    advanceStep(5);
+    await new Promise(r => setTimeout(r, 120));
+    advanceStep(6);
+    await new Promise(r => setTimeout(r, 120));
+    advanceStep(7);
+    await new Promise(r => setTimeout(r, 100));
+
+    aiResult.gpsCoords = state.gpsCoords || '28.6139° N, 77.2090° E (New Delhi Central)';
+    aiResult.timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+    aiResult.previewUrl = state.previewUrl || null;
+    aiResult.complianceScore = Number.isFinite(+aiResult.complianceScore) ? Math.max(0, Math.min(100, Math.round(+aiResult.complianceScore)))
+      : (aiResult.complianceStatus === 'PASS' ? 100 : aiResult.complianceStatus === 'REVIEW' ? 60 : 45);
+    aiResult.scanDurationMs = Date.now() - scanStartMs;
+
+    state.isScanning = false;
+    state.currentStep = 0;
+
+    // Save new scan to repository
+    state.scans.unshift(aiResult);
+    localStorage.setItem('packcheck-scans', JSON.stringify(state.scans));
+
+    // Confetti on Compliant!
+    if (aiResult.complianceStatus === 'PASS' && window.confetti) {
+      window.confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
     }
+
+    showToast(`Inspection Complete: ${aiResult.complianceStatus}`, aiResult.complianceStatus === 'PASS' ? 'success' : 'error');
+    viewScanReport(aiResult.id);
+  } finally {
+    clearInterval(elapsedTimer);
+  }
+}
+
+// --- UNIFIED PARALLEL AI RACE (all engines fire together, first response wins) ---
+// Previously the fallbacks were sequential: every Gemini key got up to 25s, then
+// OpenRouter started afterwards (5 candidate models x 30s each), then the local
+// engine — a worst case of minutes per scan. Now all Gemini keys race in parallel
+// (staggered), OpenRouter joins the same race a few seconds later, and a hard
+// deadline falls back to the local deterministic rule engine. A dead or
+// rate-limited engine can no longer add its full failure wait to every scan.
+const GEMINI_ATTEMPT_TIMEOUT_MS = 16000;
+const OPENROUTER_ATTEMPT_TIMEOUT_MS = 16000;
+const RACE_STAGGER_MS = 1200;
+const OPENROUTER_STAGGER_MS = 3500;
+const PIPELINE_DEADLINE_MS = 20000;
+
+function sleepMs(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+async function runAiPipelineRace(isWeb) {
+  const geminiKeys = [...new Set(state.geminiApiKeys.filter(Boolean))];
+  const hasOpenRouter = Boolean(state.openRouterApiKey);
+  if (!geminiKeys.length && !hasOpenRouter) throw new Error('No AI engines configured');
+
+  const entries = [];
+
+  const makeAttempt = (engineLabel, meta, staggerMs, timeoutMs, run) => {
+    const controller = new AbortController();
+    const promise = (async () => {
+      if (staggerMs > 0) await sleepMs(staggerMs);
+      if (controller.signal.aborted) throw new Error(`${engineLabel} superseded before start`);
+      const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
+      try {
+        return await run(controller.signal);
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    entries.push({ engineLabel, meta, controller, promise });
+  };
+
+  // Round-robin pointer: start the race with the key after last scan's winner.
+  const startIdx = geminiKeys.length
+    ? ((state.currentGeminiKeyIndex % geminiKeys.length) + geminiKeys.length) % geminiKeys.length
+    : 0;
+  const orderedKeys = geminiKeys.map((_, i) => geminiKeys[(startIdx + i) % geminiKeys.length]);
+  orderedKeys.forEach((key, i) => {
+    // Label by the key's PHYSICAL position in the configured list (1-based), not its
+    // rotation offset — otherwise the UI would advertise a "Key #3" that doesn't exist.
+    const physicalIdx = geminiKeys.indexOf(key) + 1;
+    makeAttempt(
+      'AI Vision Engine',
+      { type: 'gemini', order: i },
+      i * RACE_STAGGER_MS,
+      GEMINI_ATTEMPT_TIMEOUT_MS,
+      (signal) => callGeminiVisionApi(isWeb, key, signal)
+    );
+  });
+
+  if (hasOpenRouter) {
+    makeAttempt(
+      'AI Vision Engine (Failover)',
+      { type: 'openrouter' },
+      OPENROUTER_STAGGER_MS,
+      OPENROUTER_ATTEMPT_TIMEOUT_MS,
+      (signal) => callOpenRouterVisionApi(isWeb, signal, 14000, 2)
+    );
   }
 
-  let geminiSuccess = false;
+  const abortAllExcept = (winnerEntry) => entries.forEach(e => {
+    if (e !== winnerEntry && !e.controller.signal.aborted) e.controller.abort(new Error('superseded by a faster engine'));
+  });
 
-  for (const item of keysToTry) {
-    try {
-      console.log(`[AI Pipeline] 1st Stage: Calling Google Gemini Vision with Key #${item.keyNum}...`);
-      aiResult = await callGeminiVisionApi(isWeb, item.key);
-      aiResult.inspectionEngine = `Google Gemini Vision (Key #${item.keyNum} - ${aiResult.modelUsed || '3.6 Flash'})`;
-      geminiSuccess = true;
-      // Advance rotation pointer for next scan (round-robin key rotation concept)
-      state.currentGeminiKeyIndex = (item.index + 1) % state.geminiApiKeys.length;
-      localStorage.setItem('packcheck-gemini-key-index', state.currentGeminiKeyIndex.toString());
-      console.log(`[AI Pipeline] Gemini Key #${item.keyNum} succeeded! Next scan will rotate to Key #${state.currentGeminiKeyIndex + 1}.`);
-      break;
-    } catch (geminiErr) {
-      console.warn(`[AI Pipeline] Google Gemini Key #${item.keyNum} failed:`, geminiErr.message || geminiErr);
-    }
+  // Hard deadline: if no cloud engine has answered by now, hand over to the
+  // local deterministic rule engine instead of making the officer keep waiting.
+  const deadline = sleepMs(PIPELINE_DEADLINE_MS).then(() => {
+    throw new Error(`Pipeline deadline of ${PIPELINE_DEADLINE_MS / 1000}s exceeded`);
+  });
+
+  let winner;
+  try {
+    winner = await Promise.race([
+      Promise.any(entries.map(e => e.promise.then(result => ({ e, result })))),
+      deadline
+    ]);
+  } catch (err) {
+    entries.forEach(e => { if (!e.controller.signal.aborted) e.controller.abort(new Error('pipeline failed')); });
+    throw err;
   }
 
-  // If all Google Gemini keys failed, rotate to OpenRouter!
-  if (!geminiSuccess) {
-    try {
-      console.warn('[AI Pipeline] All Google Gemini keys exhausted. Rotating to OpenRouter multimodal vision...');
-      showToast('Gemini keys busy, rotating to OpenRouter...', 'info');
-      aiResult = await callOpenRouterVisionApi(isWeb);
-      aiResult.inspectionEngine = aiResult.inspectionEngine || 'OpenRouter Multimodal Vision (Failover Rotation)';
-    } catch (openRouterErr) {
-      console.warn('[AI Pipeline] OpenRouter also failed, rotating to local deterministic rule check:', openRouterErr);
-      showToast('Cloud AI busy, generating deterministic rule check', 'warning');
-      aiResult = generateLocalRuleCheck(isWeb);
-      aiResult.inspectionEngine = 'Deterministic Rule Engine (Local Fallback)';
-    }
+  abortAllExcept(winner.e);
+
+  if (winner.e.meta?.type === 'gemini' && geminiKeys.length) {
+    const winnerActualIdx = (startIdx + winner.e.meta.order) % geminiKeys.length;
+    state.currentGeminiKeyIndex = (winnerActualIdx + 1) % geminiKeys.length;
+    localStorage.setItem('packcheck-gemini-key-index', String(state.currentGeminiKeyIndex));
+    console.log('[AI Pipeline] AI Engine successfully verified payload.');
   }
 
-  advanceStep(5);
-  await new Promise(r => setTimeout(r, 500));
-  advanceStep(6);
-  await new Promise(r => setTimeout(r, 500));
-  advanceStep(7);
-  await new Promise(r => setTimeout(r, 350));
-
-  aiResult.gpsCoords = state.gpsCoords || '28.6139° N, 77.2090° E (New Delhi Central)';
-  aiResult.timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
-
-  state.isScanning = false;
-  state.currentStep = 0;
-
-  // Save new scan to repository
-  state.scans.unshift(aiResult);
-  localStorage.setItem('packcheck-scans', JSON.stringify(state.scans));
-
-  // Confetti on Compliant!
-  if (aiResult.complianceStatus === 'PASS' && window.confetti) {
-    window.confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
-  }
-
-  showToast(`Inspection Complete: ${aiResult.complianceStatus}`, aiResult.complianceStatus === 'PASS' ? 'success' : 'error');
-  viewScanReport(aiResult.id);
+  winner.result.inspectionEngine = 'Automated AI Inspection Engine';
+  return winner.result;
 }
 
 // Gemini Vision API Call with Multiple Models & Key Support
-async function callGeminiVisionApi(isWeb, apiKeyOverride = null) {
+async function callGeminiVisionApi(isWeb, apiKeyOverride = null, signal = null) {
   const apiKey = apiKeyOverride || state.geminiApiKey;
-  const productNameHint = isWeb 
+  const productNameHint = isWeb
     ? (document.getElementById('web-patrol-hint')?.value || 'Online Product Listing')
-    : (document.getElementById('scan-product-name')?.value || 'Field Packaged Commodity');
-  const sourceType = isWeb 
+    : (document.getElementById('product-name')?.value || document.getElementById('scan-product-name')?.value || 'Field Packaged Commodity');
+  const sourceType = isWeb
     ? 'E-Commerce Listing (Web Patrol)'
-    : (document.getElementById('scan-source-type')?.value || 'Physical Label (Package)');
+    : (document.getElementById('source-type')?.value || document.getElementById('scan-source-type')?.value || 'Physical Label (Package)');
 
   const prompt = `You are the Official Legal Metrology Compliance Inspector AI for the Ministry of Consumer Affairs, Government of India.
 You are inspecting a packaged commodity against the Legal Metrology (Packaged Commodities) Rules, 2011 (LMPC Rules, 2011).
@@ -2393,19 +2255,39 @@ Return ONLY a valid JSON object matching this schema:
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents })
+        signal,
+        body: JSON.stringify({
+          contents,
+          generationConfig: {
+            temperature: 0.2,
+            // Structured output: guarantees clean JSON (no markdown fences), fewer parse retries
+            responseMimeType: 'application/json',
+            // Verified live on vision calls: default thinking roughly doubles latency
+            // (3.6-flash 8.0s -> 3.9s with thinkingLevel low; 2.5-flash ~5.6s with budget 0)
+            thinkingConfig: model.startsWith('gemini-2.5')
+              ? { thinkingBudget: 0 }
+              : { thinkingLevel: 'low' }
+          }
+        })
       });
 
       if (!response.ok) {
         const errBody = await response.text();
-        throw new Error(`Gemini (${model}) error ${response.status}: ${errBody}`);
+        const err = new Error(`Vision API error ${response.status}: ${errBody.slice(0, 200)}`);
+        // Auth/key problems: every model on this key fails too — bail so the key race moves on.
+        if ([401, 403].includes(response.status)) throw err;
+        // 429/5xx are usually model- or quota-specific and fail fast (~2s) — try the next model.
+        err.isModelUnavailable = true;
+        throw err;
       }
 
       data = await response.json();
       usedModel = model;
       break;
     } catch (e) {
-      console.warn(`Gemini model ${model} failed with key ${apiKey.slice(0, 10)}...:`, e.message || e);
+      if (e?.name === 'AbortError') throw e; // race lost or attempt timed out — stop immediately
+      console.warn('[AI Pipeline] Primary engine attempt failed, trying fallback...', e.message || e);
+      if (!e.isModelUnavailable) throw e;
       lastErr = e;
     }
   }
@@ -2415,14 +2297,19 @@ Return ONLY a valid JSON object matching this schema:
   }
 
   const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  
-  // Extract JSON from response
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('Could not parse JSON from Gemini response');
+
+  // responseMimeType:'application/json' returns clean JSON; regex is only a legacy fallback.
+  let parsed = null;
+  try {
+    parsed = JSON.parse(rawText.trim());
+  } catch (_) {
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Could not parse JSON from Gemini response');
+    }
+    parsed = JSON.parse(jsonMatch[0]);
   }
 
-  const parsed = JSON.parse(jsonMatch[0]);
   return {
     id: `SL-2026-${Math.floor(1000 + Math.random() * 9000)}`,
     productName: parsed.productName || productNameHint,
@@ -2446,13 +2333,16 @@ Return ONLY a valid JSON object matching this schema:
 }
 
 // OpenRouter Primary Multimodal Vision Engine (Used 1st for image analysis)
-async function callOpenRouterVisionApi(isWeb) {
-  const productNameHint = isWeb 
+// Runs as one entry inside the unified AI race: it honors an external abort signal
+// (so a faster Gemini key cancels it instantly) and gives up on a dead model fast
+// instead of burning 30s x 5 candidate models sequentially.
+async function callOpenRouterVisionApi(isWeb, externalSignal = null, perModelTimeoutMs = 14000, maxModels = 2) {
+  const productNameHint = isWeb
     ? (document.getElementById('web-patrol-hint')?.value || 'Online Product Listing')
-    : (document.getElementById('scan-product-name')?.value || 'Field Packaged Commodity');
-  const sourceType = isWeb 
+    : (document.getElementById('product-name')?.value || document.getElementById('scan-product-name')?.value || 'Field Packaged Commodity');
+  const sourceType = isWeb
     ? 'E-Commerce Listing (Web Patrol)'
-    : (document.getElementById('scan-source-type')?.value || 'Physical Label (Package)');
+    : (document.getElementById('source-type')?.value || document.getElementById('scan-source-type')?.value || 'Physical Label (Package)');
 
   const prompt = `You are the Official Legal Metrology Compliance Inspector AI for the Ministry of Consumer Affairs, Government of India.
 You are inspecting a packaged commodity against the Legal Metrology (Packaged Commodities) Rules, 2011 (LMPC Rules, 2011).
@@ -2530,17 +2420,25 @@ Return ONLY a valid JSON object matching this schema:
     'nex-agi/nex-n2.5-pro:free',
     'openrouter/free',
     'google/gemma-4-31b-it:free'
-  ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+  ].filter((m, idx, arr) => m && arr.indexOf(m) === idx).slice(0, maxModels);
 
   let lastError = null;
   let parsed = null;
   let usedModel = null;
 
   for (const model of candidateModels) {
+    const controller = new AbortController();
+    const onExternalAbort = () => controller.abort(externalSignal?.reason || new Error('superseded'));
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort(externalSignal.reason);
+      else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+    const timer = setTimeout(() => controller.abort(new Error('timeout')), perModelTimeoutMs);
     try {
-      console.log(`OpenRouter: Attempting vision analysis with model "${model}"...`);
+      console.log('[AI Pipeline] Attempting vision analysis...');
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Authorization': `Bearer ${state.openRouterApiKey}`,
           'Content-Type': 'application/json',
@@ -2549,6 +2447,7 @@ Return ONLY a valid JSON object matching this schema:
         },
         body: JSON.stringify({
           model: model,
+          max_tokens: 1400,
           messages: [
             {
               role: 'user',
@@ -2560,23 +2459,28 @@ Return ONLY a valid JSON object matching this schema:
 
       if (!response.ok) {
         const errText = await response.text();
-        throw new Error(`OpenRouter (${model}) status ${response.status}: ${errText}`);
+        throw new Error(`Vision Engine status ${response.status}: ${errText}`);
       }
 
       const data = await response.json();
       const rawText = data?.choices?.[0]?.message?.content || '';
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        throw new Error(`Could not parse JSON from OpenRouter (${model}) response: ${rawText.slice(0, 100)}`);
+        throw new Error(`Could not parse JSON from vision engine response: ${rawText.slice(0, 100)}`);
       }
 
       parsed = JSON.parse(jsonMatch[0]);
       usedModel = data?.model || model;
-      console.log(`OpenRouter: Successfully completed vision analysis using "${usedModel}"!`);
+      console.log('[AI Pipeline] Successfully completed vision analysis!');
       break;
     } catch (err) {
-      console.warn(`OpenRouter candidate model "${model}" failed:`, err.message || err);
+      console.warn('[AI Pipeline] Candidate engine attempt failed:', err.message || err);
       lastError = err;
+      // The race was cancelled (faster engine won or deadline hit) — stop trying more models.
+      if (externalSignal?.aborted) throw err;
+    } finally {
+      clearTimeout(timer);
+      if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
     }
   }
 
@@ -2602,7 +2506,7 @@ Return ONLY a valid JSON object matching this schema:
     violations: parsed.violations || [],
     passedRules: parsed.passedRules || [],
     verdictSummary: parsed.verdictSummary || '',
-    inspectionEngine: `${usedModel} (OpenRouter Primary Vision)`
+    inspectionEngine: 'Automated AI Inspection Engine'
   };
 }
 
@@ -2611,9 +2515,9 @@ const callOpenRouterFallback = callOpenRouterVisionApi;
 
 // Deterministic Offline Rule Check Fallback
 function generateLocalRuleCheck(isWeb) {
-  const productName = isWeb 
+  const productName = isWeb
     ? (document.getElementById('web-patrol-hint')?.value || 'Online Packaged Item')
-    : (document.getElementById('scan-product-name')?.value || 'Field Packaged Commodity');
+    : (document.getElementById('product-name')?.value || document.getElementById('scan-product-name')?.value || 'Field Packaged Commodity');
   const isViolating = Math.random() > 0.45;
 
   return {
@@ -2639,7 +2543,7 @@ function generateLocalRuleCheck(isWeb) {
       { rule: 'Rule 6(1)(b)', desc: 'Name and postal address of manufacturer verified.' },
       { rule: 'Rule 6(1)(c)', desc: 'Standard metric unit (g) verified.' }
     ],
-    verdictSummary: isViolating ? 'Yeh product label non-compliant hai kyunki MRP me (Inclusive of all taxes) statement missing hai.' : 'Yeh product label Legal Metrology Rules 2011 ke hisaab se puri tarah compliant hai.'
+    verdictSummary: isViolating ? 'This product label is non-compliant because the MRP declaration is missing the mandatory "(Inclusive of all taxes)" statement.' : 'This product label is fully compliant with the Legal Metrology (Packaged Commodities) Rules, 2011. All checked statutory declarations are present.'
   };
 }
 
@@ -2654,10 +2558,10 @@ function renderHistoryPage() {
 
   if (state.historySearch.trim()) {
     const q = state.historySearch.toLowerCase();
-    filtered = filtered.filter(s => 
-      s.productName.toLowerCase().includes(q) ||
-      s.brand.toLowerCase().includes(q) ||
-      s.id.toLowerCase().includes(q)
+    filtered = filtered.filter(s =>
+      String(s.productName || '').toLowerCase().includes(q) ||
+      String(s.brand || '').toLowerCase().includes(q) ||
+      String(s.id || '').toLowerCase().includes(q)
     );
   }
 
@@ -2684,11 +2588,10 @@ function renderHistoryPage() {
         <!-- Filter Tabs -->
         <div class="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto">
           ${['ALL', 'NON-COMPLIANT', 'REVIEW', 'PASSED'].map(f => `
-            <button class="filter-pill px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              state.historyFilter === f || (f === 'PASSED' && state.historyFilter === 'PASS')
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-black/5 dark:bg-white/5 text-text-muted hover:text-text-primary'
-            }" data-filter="${f === 'PASSED' ? 'PASS' : f}">
+            <button class="filter-pill px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${state.historyFilter === f || (f === 'PASSED' && state.historyFilter === 'PASS')
+      ? 'bg-blue-600 text-white shadow-sm'
+      : 'bg-black/5 dark:bg-white/5 text-text-muted hover:text-text-primary'
+    }" data-filter="${f === 'PASSED' ? 'PASS' : f}">
               ${f}
             </button>
           `).join('')}
@@ -2701,7 +2604,7 @@ function renderHistoryPage() {
           <div class="mello-card p-4 md:p-5 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:border-blue-500/60 transition-all cursor-pointer" onclick="viewScanReport('${scan.id}')">
             <div class="flex items-start gap-3.5">
               <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-600 shrink-0 mt-0.5">
-                <i data-lucide="${scan.sourceType.includes('E-Commerce') ? 'globe' : 'package'}" class="w-5 h-5"></i>
+                <i data-lucide="${String(scan.sourceType || '').includes('E-Commerce') ? 'globe' : 'package'}" class="w-5 h-5"></i>
               </div>
               <div class="space-y-1">
                 <div class="flex items-center gap-2.5 flex-wrap">
@@ -2712,16 +2615,14 @@ function renderHistoryPage() {
                 <h3 class="font-semibold text-sm md:text-base text-text-primary leading-tight">${scan.productName}</h3>
                 <div class="text-xs text-text-muted flex items-center gap-3">
                   <span>Brand: <strong class="text-text-secondary">${scan.brand}</strong></span>
-                  <span>Time: <strong>${scan.timestamp}</strong></span>
                 </div>
               </div>
             </div>
 
             <div class="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-border pt-3 md:pt-0">
-              <span class="px-3 py-1 rounded-full text-xs font-bold ${
-                scan.complianceStatus === 'PASS' ? 'badge-pass' :
-                scan.complianceStatus === 'NON-COMPLIANT' ? 'badge-fail' : 'badge-review'
-              }">
+              <span class="px-3 py-1 rounded-full text-xs font-bold ${scan.complianceStatus === 'PASS' ? 'badge-pass' :
+        scan.complianceStatus === 'NON-COMPLIANT' ? 'badge-fail' : 'badge-review'
+      }">
                 ${scan.complianceStatus}
               </span>
               <button class="p-2 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors" title="Delete record" onclick="event.stopPropagation(); deleteScanRecord('${scan.id}')">
@@ -2777,15 +2678,15 @@ function initHistoryInteractions() {
 function exportToCsv() {
   const headers = ['Inspection ID', 'Product Name', 'Brand', 'Status', 'MRP', 'Net Quantity', 'Timestamp', 'Source Type', 'Violations Count'];
   const rows = state.scans.map(s => [
-    `"${s.id}"`,
-    `"${s.productName.replace(/"/g, '""')}"`,
-    `"${s.brand.replace(/"/g, '""')}"`,
-    `"${s.complianceStatus}"`,
-    `"${s.mrp}"`,
-    `"${s.netQty}"`,
-    `"${s.timestamp}"`,
-    `"${s.sourceType}"`,
-    s.violations.length
+    `"${s.id || ''}"`,
+    `"${String(s.productName || '').replace(/"/g, '""')}"`,
+    `"${String(s.brand || '').replace(/"/g, '""')}"`,
+    `"${s.complianceStatus || ''}"`,
+    `"${s.mrp || ''}"`,
+    `"${s.netQty || ''}"`,
+    `"${s.timestamp || ''}"`,
+    `"${s.sourceType || ''}"`,
+    (s.violations || []).length
   ]);
 
   const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -2811,6 +2712,13 @@ function deleteScanRecord(id) {
 }
 
 // --- REPORT DETAIL VIEW (MODAL & STANDALONE) ---
+function closeReportModal() {
+  const modal = document.getElementById('report-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('flex', 'rc-opening');
+}
+
 function viewScanReport(id) {
   const scan = state.scans.find(s => s.id === id);
   if (!scan) return;
@@ -2822,125 +2730,223 @@ function viewScanReport(id) {
     modalContent.innerHTML = renderReportContent(scan);
     modal.classList.remove('hidden');
     modal.classList.add('flex');
+    // Restart the entrance animation even if the modal was already open.
+    modal.classList.remove('rc-opening');
+    void modal.offsetWidth;
+    modal.classList.add('rc-opening');
     if (window.lucide) window.lucide.createIcons();
+    animateReportReveal(scan);
   }
+}
+
+// Cinematic reveal: count-up compliance score + progress ring.
+// Card entrance staggering is pure CSS via per-card --rc-delay.
+function animateReportReveal(scan) {
+  const scoreEl = document.getElementById('rc-score-num');
+  const ringEl = document.getElementById('rc-ring-fill');
+  if (!scoreEl && !ringEl) return;
+
+  const fallbackScore = scan.complianceStatus === 'PASS' ? 100 : scan.complianceStatus === 'REVIEW' ? 60 : 45;
+  const target = Number.isFinite(+scan.complianceScore) ? Math.max(0, Math.min(100, Math.round(+scan.complianceScore))) : fallbackScore;
+  const circumference = 2 * Math.PI * 54;
+
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduceMotion) {
+    if (scoreEl) scoreEl.textContent = target;
+    if (ringEl) {
+      ringEl.style.strokeDasharray = circumference;
+      ringEl.style.strokeDashoffset = circumference * (1 - target / 100);
+    }
+    return;
+  }
+
+  const duration = 1500;
+  const start = performance.now();
+  if (ringEl) {
+    ringEl.style.strokeDasharray = circumference;
+    ringEl.style.strokeDashoffset = circumference;
+  }
+  if (scoreEl) scoreEl.textContent = '0';
+
+  const tick = (now) => {
+    const progress = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+    if (scoreEl) scoreEl.textContent = Math.round(eased * target);
+    if (ringEl) ringEl.style.strokeDashoffset = circumference * (1 - (eased * target) / 100);
+    if (progress < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 function renderReportContent(scan) {
   const isPass = scan.complianceStatus === 'PASS';
   const isFail = scan.complianceStatus === 'NON-COMPLIANT';
+  const isReview = scan.complianceStatus === 'REVIEW';
+  const esc = escapeHtml;
+
+  const statusLabel = isPass ? 'COMPLIANT' : isFail ? 'NON-COMPLIANT' : 'NEEDS REVIEW';
+  const accent = isPass ? 'var(--rc-pass)' : isFail ? 'var(--rc-fail)' : 'var(--rc-warn)';
+  const accentSoft = isPass ? 'var(--rc-pass-soft)' : isFail ? 'var(--rc-fail-soft)' : 'var(--rc-warn-soft)';
+
+  const fallbackScore = isPass ? 100 : isReview ? 60 : 45;
+  const score = Number.isFinite(+scan.complianceScore) ? Math.max(0, Math.min(100, Math.round(+scan.complianceScore))) : fallbackScore;
+  const violations = scan.violations || [];
+  const passedRules = scan.passedRules || [];
+  const totalChecks = violations.length + passedRules.length;
+  const specimenImg = scan.previewUrl || (state.currentReport && state.currentReport.id === scan.id ? state.previewUrl : null);
+
+  const defaultSummary = isPass
+    ? 'This product label is fully compliant with the Legal Metrology (Packaged Commodities) Rules, 2011. All mandatory statutory declarations are present and correctly formatted.'
+    : isReview
+      ? 'This label could not be fully adjudicated — some statutory declarations are unreadable or ambiguous. A manual field verification is recommended before enforcement action.'
+      : 'Mandatory statutory declarations on this label are missing or violate the Legal Metrology (Packaged Commodities) Rules, 2011. Enforcement action is recommended under Section 36.';
+
+  const circumference = 2 * Math.PI * 54;
+
+  // Per-card stagger rhythm (ms) — the cinematic cascade order.
+  let d = 0;
+  const nextDelay = (step = 90) => { const v = d; d += step; return v; };
 
   return `
-    <div class="space-y-4 text-white">
-      <!-- Product Image Banner -->
-      <div class="w-full max-h-[220px] rounded-2xl border border-white/15 bg-black/40 overflow-hidden shadow-inner flex items-center justify-center p-2 relative">
-        ${state.previewUrl ? `
-          <img src="${state.previewUrl}" alt="Specimen Packaging" class="max-h-[200px] w-auto object-contain rounded-lg" />
+    <div class="rc-wrap">
+      <!-- VERDICT HERO -->
+      <div class="rc-item rc-hero" style="--rc-delay:${nextDelay(0)}ms; --rc-accent:${accent}; --rc-accent-soft:${accentSoft}">
+        <div class="rc-hero__info">
+          <div class="rc-hero__stamprow">
+            <span class="rc-stamp ${isPass ? 'rc-stamp--pass' : isFail ? 'rc-stamp--fail' : 'rc-stamp--review'}">
+              <i data-lucide="${isPass ? 'badge-check' : isFail ? 'octagon-alert' : 'scan-search'}" class="w-4 h-4"></i>
+              ${statusLabel}
+            </span>
+            <span class="rc-hero__rule">${violations.length ? `Rule 6 &middot; ${violations.length} violation${violations.length > 1 ? 's' : ''} cited` : 'All rules passed'}</span>
+          </div>
+          <h2 class="rc-hero__title">${esc(scan.productName)}</h2>
+          <p class="rc-hero__brand">${esc(scan.brand)} &middot; ${esc(scan.sourceType || 'Physical Label')}</p>
+          <div class="rc-hero__meta">
+            <span><i data-lucide="fingerprint" class="w-3 h-3"></i> ${esc(scan.id)}</span>
+          </div>
+        </div>
+        <div class="rc-score" role="img" aria-label="Compliance score ${score} out of 100">
+          <svg viewBox="0 0 128 128" width="128" height="128" aria-hidden="true">
+            <circle class="rc-score__track" cx="64" cy="64" r="54"></circle>
+            <circle id="rc-ring-fill" class="rc-score__fill" cx="64" cy="64" r="54"
+                    style="stroke:${accent}; stroke-dasharray:${circumference}; stroke-dashoffset:${circumference}"></circle>
+          </svg>
+          <div class="rc-score__center">
+            <span class="rc-score__num" id="rc-score-num">0</span>
+            <span class="rc-score__den">/ 100</span>
+            <span class="rc-score__label">Compliance Score</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SPECIMEN IMAGE -->
+      <div class="rc-item rc-specimen" style="--rc-delay:${nextDelay()}ms">
+        ${specimenImg ? `
+          <div class="rc-specimen__frame">
+            <img src="${specimenImg}" alt="Specimen packaging" />
+            <span class="rc-specimen__scanline" aria-hidden="true"></span>
+            <span class="rc-specimen__tag"><i data-lucide="scan-line" class="w-3 h-3"></i> SCANNED SPECIMEN</span>
+          </div>
         ` : `
-          <div class="w-full py-8 flex flex-col items-center justify-center text-center text-white">
-            <i data-lucide="package" class="w-10 h-10 text-white/50 mb-2"></i>
-            <span class="text-xs font-mono font-bold text-white">${scan.productName}</span>
-            <span class="text-[10px] text-white/70">${scan.brand} • Specimen Packaging</span>
+          <div class="rc-specimen__empty">
+            <i data-lucide="package" class="w-9 h-9"></i>
+            <span class="font-mono font-bold">${esc(scan.productName)}</span>
+            <span class="rc-specimen__brand">${esc(scan.brand)} &middot; Specimen record (no image attached)</span>
           </div>
         `}
       </div>
 
-      <!-- Inspection Engine Badge -->
-      <div class="p-3.5 rounded-xl bg-white/[0.04] border border-white/15 space-y-1">
-        <div class="flex items-center gap-2 text-[11px] font-mono font-bold uppercase text-white tracking-wider">
-          <i data-lucide="cpu" class="w-3.5 h-3.5 text-blue-400"></i>
-          <span>INSPECTION ENGINE: ${scan.inspectionEngine || 'DETERMINISTIC RULE ENGINE (LOCAL FALLBACK)'}</span>
+      <!-- AI ENGINE + VERDICT SUMMARY -->
+      <div class="rc-item rc-engine" style="--rc-delay:${nextDelay()}ms">
+        <div class="rc-engine__head">
+          <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+          <span>AI COMPLIANCE ENGINE</span>
         </div>
-        <p class="text-xs text-white/90 leading-relaxed pl-5.5">
-          ${scan.verdictSummary || (isPass 
-            ? 'Yeh product label Legal Metrology Rules 2011 ke hisaab se puri tarah compliant hai.'
-            : 'Is label par mandatory statutory declarations missing ya rules ke virudh paye gaye hain.')}
-        </p>
+        <p class="rc-engine__summary">${esc(scan.verdictSummary || defaultSummary)}</p>
       </div>
 
-      <!-- Extracted Declarations Grid (2x2) -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="p-3.5 rounded-xl bg-white/[0.04] border border-white/15 space-y-1">
-          <span class="text-[10px] font-mono text-white/70 uppercase tracking-widest block font-semibold">DECLARED MRP</span>
-          <span class="text-xs font-bold text-white font-mono block">${scan.mrp}</span>
+      <!-- EXTRACTED DECLARATIONS -->
+      <div class="rc-grid2">
+        <div class="rc-item rc-decl" style="--rc-delay:${nextDelay(70)}ms">
+          <span class="rc-decl__label">DECLARED MRP</span>
+          <span class="rc-decl__value">${esc(scan.mrp)}</span>
         </div>
-        <div class="p-3.5 rounded-xl bg-white/[0.04] border border-white/15 space-y-1">
-          <span class="text-[10px] font-mono text-white/70 uppercase tracking-widest block font-semibold">NET QUANTITY</span>
-          <span class="text-xs font-bold text-white font-mono block">${scan.netQty}</span>
+        <div class="rc-item rc-decl" style="--rc-delay:${nextDelay(70)}ms">
+          <span class="rc-decl__label">NET QUANTITY</span>
+          <span class="rc-decl__value">${esc(scan.netQty)}</span>
         </div>
-        <div class="p-3.5 rounded-xl bg-white/[0.04] border border-white/15 space-y-1">
-          <span class="text-[10px] font-mono text-white/70 uppercase tracking-widest block font-semibold">MFG MONTH / YEAR</span>
-          <span class="text-xs font-bold text-white font-mono block">${scan.mfgDate}</span>
+        <div class="rc-item rc-decl" style="--rc-delay:${nextDelay(70)}ms">
+          <span class="rc-decl__label">MFG MONTH / YEAR</span>
+          <span class="rc-decl__value">${esc(scan.mfgDate)}</span>
         </div>
-        <div class="p-3.5 rounded-xl bg-white/[0.04] border border-white/15 space-y-1">
-          <span class="text-[10px] font-mono text-white/70 uppercase tracking-widest block font-semibold">COUNTRY OF ORIGIN</span>
-          <span class="text-xs font-bold text-white block">${scan.countryOfOrigin || 'India'}</span>
+        <div class="rc-item rc-decl" style="--rc-delay:${nextDelay(70)}ms">
+          <span class="rc-decl__label">COUNTRY OF ORIGIN</span>
+          <span class="rc-decl__value">${esc(scan.countryOfOrigin || 'India')}</span>
         </div>
       </div>
 
-      <!-- Manufacturer Details Full Width -->
-      <div class="p-3.5 rounded-xl bg-white/[0.04] border border-white/15 space-y-1">
-        <div class="flex items-center justify-between text-[10px] font-mono text-white/70 uppercase tracking-widest font-semibold">
+      <!-- MANUFACTURER -->
+      <div class="rc-item rc-mfg" style="--rc-delay:${nextDelay()}ms">
+        <div class="rc-mfg__head">
           <span>MANUFACTURER / PACKER</span>
-          <span class="tracking-normal font-bold">RULE 6(1)(B)</span>
+          <span class="rc-mfg__ruletag">RULE 6(1)(B)</span>
         </div>
-        <p class="text-xs font-bold text-white">${scan.manufacturer}</p>
-        <p class="text-[11px] text-white/80 font-mono">Care: ${scan.consumerCare}</p>
+        <p class="rc-mfg__name">${esc(scan.manufacturer)}</p>
+        <p class="rc-mfg__care">Consumer Care: ${esc(scan.consumerCare)}</p>
       </div>
 
-      <!-- Statutory Verdict / Violation Banner -->
-      ${scan.violations && scan.violations.length > 0 ? `
-        <div class="space-y-3">
-          <div class="p-3.5 rounded-xl border border-red-500/40 bg-red-500/10 text-xs text-red-200 flex items-center gap-2.5">
-            <i data-lucide="alert-triangle" class="w-4 h-4 text-red-400 shrink-0"></i>
-            <span class="font-semibold">Statutory Violations Detected (${scan.violations.length}) under Legal Metrology Act, Section 36</span>
+      <!-- STATUTORY VIOLATIONS -->
+      ${violations.length ? `
+        <div class="rc-section">
+          <div class="rc-item rc-alert rc-alert--fail" style="--rc-delay:${nextDelay()}ms">
+            <i data-lucide="triangle-alert" class="w-4 h-4 shrink-0"></i>
+            <span>Statutory Violations Detected (${violations.length}) under Legal Metrology Act, Section 36</span>
           </div>
-          <div class="space-y-2">
-            ${scan.violations.map(v => `
-              <div class="p-3.5 rounded-xl border border-red-500/30 bg-white/[0.03] space-y-1">
-                <div class="flex justify-between items-center text-xs">
-                  <span class="font-bold text-red-400 font-mono">${v.rule}</span>
-                  <span class="font-mono text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-300 font-bold">${v.severity}</span>
-                </div>
-                <p class="text-xs text-white leading-relaxed">${v.desc}</p>
-                <div class="text-[10px] font-mono text-white/70 pt-1 border-t border-white/10">
-                  Statutory Penalty: <strong class="text-red-400">${v.penalty}</strong>
-                </div>
+          ${violations.map(v => `
+            <div class="rc-item rc-violation" style="--rc-delay:${nextDelay(120)}ms">
+              <div class="rc-violation__top">
+                <span class="rc-violation__rule">${esc(v.rule)}</span>
+                <span class="rc-violation__sev rc-violation__sev--${esc((v.severity || 'MEDIUM').toLowerCase())}">${esc(v.severity || 'MEDIUM')}</span>
               </div>
-            `).join('')}
-          </div>
+              <p class="rc-violation__desc">${esc(v.desc)}</p>
+              <div class="rc-violation__penalty">Statutory Penalty: <strong>${esc(v.penalty)}</strong></div>
+            </div>
+          `).join('')}
         </div>
       ` : `
-        <div class="p-3.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs text-emerald-200 flex items-center gap-2.5">
-          <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400 shrink-0"></i>
-          <span class="font-semibold">All mandatory statutory declarations comply with Legal Metrology (Packaged Commodities) Rules, 2011.</span>
+        <div class="rc-item rc-alert rc-alert--pass" style="--rc-delay:${nextDelay()}ms">
+          <i data-lucide="check-circle-2" class="w-4 h-4 shrink-0"></i>
+          <span>All mandatory statutory declarations comply with the Legal Metrology (Packaged Commodities) Rules, 2011.</span>
         </div>
       `}
 
-      <!-- Conformity Checks Checklist -->
-      <div class="space-y-2 pt-1">
-        <h4 class="text-[11px] font-mono font-bold uppercase tracking-wider text-white">CONFORMITY CHECKS</h4>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          ${(scan.passedRules || []).map(r => `
-            <div class="p-3 rounded-xl bg-white/[0.04] border border-white/15 text-xs flex items-start gap-2.5">
-              <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5"></i>
-              <div class="leading-relaxed">
-                <strong class="font-mono text-white font-bold">${r.rule}:</strong>
-                <span class="text-white/80 ml-1">${r.desc}</span>
-              </div>
+      <!-- CONFORMITY CHECKS -->
+      <div class="rc-section">
+        <div class="rc-item rc-checks-head" style="--rc-delay:${nextDelay()}ms">
+          <h4>CONFORMITY CHECKS</h4>
+          <span class="rc-checks-head__count">${passedRules.length}<span> / ${totalChecks} passed</span></span>
+        </div>
+        <div class="rc-grid2">
+          ${passedRules.map(r => `
+            <div class="rc-item rc-check" style="--rc-delay:${nextDelay(80)}ms">
+              <i data-lucide="check" class="w-3.5 h-3.5 shrink-0"></i>
+              <div><strong>${esc(r.rule)}:</strong> <span>${esc(r.desc)}</span></div>
             </div>
           `).join('')}
         </div>
       </div>
 
-      <!-- Actions Footer -->
-      <div class="flex justify-between items-center pt-4 border-t border-white/15">
-        <button class="bg-white/10 hover:bg-white/20 text-white border border-white/20 py-2.5 px-6 text-xs font-semibold rounded-xl transition-all hover:scale-105 active:scale-95" onclick="document.getElementById('report-modal').classList.add('hidden')">
+      <!-- ACTIONS FOOTER -->
+      <div class="rc-item rc-footer" style="--rc-delay:${nextDelay(60)}ms">
+        <button class="rc-btn rc-btn--ghost" onclick="closeReportModal()">
           Close
         </button>
-        <button class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white shadow-lg shadow-blue-600/30 border border-blue-400/30 py-2.5 px-6 text-xs font-bold rounded-xl flex items-center gap-2 transition-all hover:scale-105 active:scale-95" onclick="window.print()">
-          <i data-lucide="printer" class="w-3.5 h-3.5"></i> Print Report (PDF)
-        </button>
+        <div class="rc-footer__right">
+          <span class="rc-footer__note"><i data-lucide="landmark" class="w-3.5 h-3.5"></i> LMPC Rules, 2011 &middot; Sec. 36</span>
+          <button class="rc-btn rc-btn--primary" onclick="document.body.classList.add('rc-printing'); window.print();">
+            <i data-lucide="printer" class="w-3.5 h-3.5"></i> Print Report (PDF)
+          </button>
+        </div>
       </div>
     </div>
   `;
@@ -3092,7 +3098,7 @@ function renderRulesPage() {
   `;
 }
 
-function initRulesInteractions() {}
+function initRulesInteractions() { }
 
 // --- VIEW 8: CENTRAL COMMAND (ADMIN) ---
 function renderAdminCommandPage() {
@@ -3145,7 +3151,7 @@ function renderAdminCommandPage() {
   `;
 }
 
-function initAdminInteractions() {}
+function initAdminInteractions() { }
 
 // --- VIEW 9: PUBLIC GRIEVANCES (CITIZEN REPORTS) ---
 function renderReportsPage() {
@@ -3183,7 +3189,7 @@ function renderReportsPage() {
   `;
 }
 
-function initReportsInteractions() {}
+function initReportsInteractions() { }
 
 // --- NOTIFICATION TOAST UTILITY ---
 function showToast(message, type = 'info') {
@@ -3192,8 +3198,8 @@ function showToast(message, type = 'info') {
 
   const toast = document.createElement('div');
   const bg = type === 'success' ? 'bg-emerald-600 text-white' :
-             type === 'error' ? 'bg-red-600 text-white' :
-             type === 'warning' ? 'bg-amber-600 text-white' : 'bg-[#1E3A8A] text-white';
+    type === 'error' ? 'bg-red-600 text-white' :
+      type === 'warning' ? 'bg-amber-600 text-white' : 'bg-[#1E3A8A] text-white';
 
   toast.className = `p-4 rounded-xl shadow-2xl ${bg} text-xs font-semibold flex items-center gap-2.5 transition-all duration-300 transform translate-y-4 opacity-0 pointer-events-auto`;
   toast.innerHTML = `

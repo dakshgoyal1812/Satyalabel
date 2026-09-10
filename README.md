@@ -17,9 +17,10 @@ An intelligent compliance checking platform for packaged commodities adhering to
   6. Rule Adjudication under LMPC Rules, 2011
   7. Compliance Determination & Statutory Penalty Ledger
 - **Multi-Tier AI Rotation & Failover Architecture**:
-  - **1st Priority**: Google Gemini Vision API (with automatic key rotation between Key #1 and Key #2 for load balancing & quota management).
-  - **2nd Priority**: OpenRouter Multimodal Vision model (`google/gemma-4-26b-a4b-it:free` / `openrouter/free`).
+  - **1st Priority**: Multimodal Vision API (all keys race in parallel — first response wins; round-robin pointer balances quota across keys; 25s per-attempt timeout).
+  - **2nd Priority**: Secondary Multimodal Vision failover model.
   - **3rd Priority**: Offline Deterministic Rule Adjudication Engine.
+  - **Fast Payload**: Client-side image downscaling (max 1600px JPEG) before upload; structured JSON output (`responseMimeType`) and minimized model thinking for low-latency inference.
 
 ---
 
@@ -41,7 +42,7 @@ Populate your `.env` file:
 GEMINI_API_KEY=your_primary_gemini_api_key_here
 GEMINI_API_KEY_2=your_secondary_gemini_api_key_here
 OPENROUTER_API_KEY=your_openrouter_api_key_here
-OPENROUTER_MODEL=google/gemma-4-26b-a4b-it:free
+OPENROUTER_MODEL=your_vision_model_here
 ```
 
 > **Security Note**: Never commit `.env` containing real credentials to Git. It is automatically ignored by `.gitignore`.
