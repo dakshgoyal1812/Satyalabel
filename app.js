@@ -299,8 +299,48 @@ function simulateGps() {
 
 // --- ROUTER ---
 function handleRoute() {
-  const hash = window.location.hash || '#/';
-  const route = hash.replace('#', '').split('?')[0] || '/';
+  const rawHash = window.location.hash || '';
+  let route = rawHash.replace(/^#\/?/, '/').split('?')[0] || '';
+
+  // 1. Direct pathname fallback if hash is missing (e.g. direct mobile URL or server rewrite)
+  if (!route || route === '/') {
+    const pathname = window.location.pathname.toLowerCase();
+    if (pathname.endsWith('/upload') || pathname.endsWith('/upload/')) {
+      route = '/upload';
+      window.location.hash = '#/upload';
+    } else if (pathname.endsWith('/admin') || pathname.endsWith('/admin/')) {
+      route = '/admin';
+      window.location.hash = '#/admin';
+    } else if (pathname.endsWith('/dashboard') || pathname.endsWith('/dashboard/')) {
+      route = '/dashboard';
+      window.location.hash = '#/dashboard';
+    } else if (pathname.endsWith('/history') || pathname.endsWith('/history/')) {
+      route = '/history';
+      window.location.hash = '#/history';
+    } else if (pathname.endsWith('/login') || pathname.endsWith('/login/')) {
+      route = '/login';
+      window.location.hash = '#/login';
+    }
+  }
+
+  // 2. Query parameter fallback (e.g. ?page=upload or ?route=/upload or ?upload)
+  if (!route || route === '/') {
+    const searchParams = new URLSearchParams(window.location.search);
+    const targetParam = searchParams.get('route') || searchParams.get('page');
+    if (targetParam === '/upload' || targetParam === 'upload' || searchParams.has('upload')) {
+      route = '/upload';
+      window.location.hash = '#/upload';
+    } else if (targetParam === '/admin' || targetParam === 'admin' || searchParams.has('admin')) {
+      route = '/admin';
+      window.location.hash = '#/admin';
+    }
+  }
+
+  if (!route || route === '') {
+    route = '/';
+  } else if (!route.startsWith('/')) {
+    route = '/' + route;
+  }
 
   teardownLandingInteractions();
   applySurface(route);
@@ -3409,8 +3449,30 @@ function renderRulesPage() {
 
 function initRulesInteractions() { }
 
+// Helper to compute the best target URL for the Jury mobile QR code
+function getJuryQrTargetUrl() {
+  const custom = localStorage.getItem('packcheck-jury-qr-url');
+  if (custom && custom.trim()) return custom.trim();
+
+  const hostname = window.location.hostname;
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || window.location.protocol === 'file:';
+
+  // If local, phone camera scanning the screen cannot access localhost.
+  // Direct them to the official live production GitHub Pages deployment so it opens instantly:
+  if (isLocal) {
+    return 'https://dakshgoyal1812.github.io/Satyalabel/#/upload';
+  }
+
+  // If deployed (GitHub Pages, Vercel, or custom domain):
+  const origin = window.location.origin;
+  const pathname = window.location.pathname.replace(/\/index\.html$/i, '').replace(/\/+$/, '');
+  return `${origin}${pathname}/#/upload`;
+}
+
 // --- VIEW 8: CENTRAL COMMAND (ADMIN) ---
 function renderAdminCommandPage() {
+  const targetUrl = getJuryQrTargetUrl();
+
   return `
     <div class="max-w-[1200px] mx-auto px-4 md:px-8 py-8 space-y-8">
       <div>
@@ -3426,7 +3488,7 @@ function renderAdminCommandPage() {
           </span>
           <h2 class="text-xl font-bold text-text-primary">Scan with Smartphone Camera</h2>
           <div class="p-4 bg-white rounded-2xl shadow-md border border-border inline-block">
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https://packcheck-ai.vercel.app/upload" alt="Jury QR Code" class="w-44 h-44" />
+            <img id="jury-qr-image" src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(targetUrl)}&margin=6" alt="Jury QR Code" class="w-44 h-44 object-contain" />
           </div>
           <p class="text-xs text-text-muted max-w-sm">
             Allows judges and field evaluators to scan physical commodity packages directly using mobile browsers without app download.

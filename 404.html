@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Redirecting to PackCheck AI...</title>
+  <script>
+    (function() {
+      // Single Page Application redirect for GitHub Pages
+      var origin = window.location.origin;
+      var path = window.location.pathname;
+      var repo = '/Satyalabel';
+      
+      var route = '';
+      if (path.indexOf(repo) === 0) {
+        route = path.substring(repo.length);
+      } else {
+        route = path;
+      }
+      
+      // Normalize route
+      if (!route || route === '' || route === '/') {
+        route = '/';
+      }
+      if (route.charAt(0) !== '/') {
+        route = '/' + route;
+      }
+
+      var search = window.location.search || '';
+      var hash = window.location.hash || '';
+
+      var redirectUrl = origin + (path.indexOf(repo) === 0 ? repo : '') + '/#' + route + (search ? (hash ? search + hash : search) : hash);
+      window.location.replace(redirectUrl);
+    })();
+  </script>
+</head>
+<body style="font-family: sans-serif; background: #090a0f; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+  <p>Redirecting to PackCheck AI...</p>
+</body>
+</html>
